@@ -46,6 +46,21 @@ Set your electricity rate in the toolbar (`$/kWh`). It's stored in the database
 and applied to every range retroactively. `WINDMILL_RATE_PER_KWH` in `.env` is
 only the initial default.
 
+## Comparing before and after a change
+
+```bash
+python3 compare.py 2026-08-08 --new "Kitchen,Living Room,Spare Room"
+```
+
+Raw before/after kWh mostly measures the weather. This regresses daily household
+kWh against cooling degree days (daily mean above 65 F, from Open-Meteo) for each
+period and predicts what each configuration would use on identically warm days.
+Check the reported R-squared and sample count before trusting it.
+
+Note that device *names* follow the physical unit, not the room. If units get
+moved between rooms, a unit's history spans both, so per-room comparisons across
+a move are not meaningful; whole-house totals still are.
+
 ## How energy is calculated
 
 The cloud exposes no trustworthy cumulative energy counter, so this doesn't use
