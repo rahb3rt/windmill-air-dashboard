@@ -35,6 +35,16 @@ LON = float(_ENV.get("WINDMILL_LON", -74.0060))
 CHANGE_DATE = _ENV.get("WINDMILL_CHANGE_DATE", "") or None
 NEW_UNITS = [s.strip() for s in _ENV.get("WINDMILL_NEW_UNITS", "").split(",") if s.strip()]
 
+#: Units physically moved rooms on this date, so history before it belongs to a
+#: different room than the device is named for now.
+MOVED_ON = _ENV.get("WINDMILL_MOVED_ON", "") or None
+
+#: "<device name>:<room it was in before MOVED_ON>", comma separated.
+PRIOR_ROOMS = dict(
+    part.split(":", 1) for part in _ENV.get("WINDMILL_PRIOR_ROOMS", "").split(",")
+    if ":" in part
+)
+
 #: Datastream carrying instantaneous watts. Confirmed as Windmill's "Power"
 #: stream by correlating its CSV export against live pin reads.
 POWER_PIN = _ENV.get("WINDMILL_POWER_PIN", "v15")

@@ -166,9 +166,22 @@ Both surfaces state their own weaknesses rather than leaving you to infer them:
 - **Local climate.** How often break-even is actually reached in your summers,
   and the net effect over a full cooling season.
 
-Note that device *names* follow the physical unit, not the room. If units get
-moved between rooms, a unit's history spans both, so per-room comparisons across
-a move are not meaningful; whole-house totals still are.
+## Units that changed rooms
+
+Device names follow the hardware, so after a unit is moved its older history is
+labelled with a room it was not in. Set `WINDMILL_MOVED_ON` and
+`WINDMILL_PRIOR_ROOMS` (`Bedroom:Kitchen,...`) and the dashboard labels each unit
+by where it actually was for the range on screen:
+
+- A range entirely before the move shows the old room names.
+- A range entirely after shows the current names.
+- A range spanning the move keeps the current name and adds *"was X before
+  <date>"*, since no single label is correct across it.
+
+Units are also dropped from ranges predating their installation. Without that, a
+pre-move range lists two units as "Kitchen" — the device that was there then, and
+the one named that now. Colour and filtering still key off the device, so a unit
+keeps its identity even as its label changes.
 
 ## How energy is calculated
 

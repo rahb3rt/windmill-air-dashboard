@@ -86,6 +86,27 @@ def integrate_points(points, t_end=None):
     return wh / 1000, cooling, 0.0
 
 
+# ------------------------------------------------------------ room naming
+
+def room_label(unit, t0, t1):
+    """What room this device was actually in, for the range being viewed.
+
+    Device names track where a unit is *now*. When units are moved, their older
+    history belongs to a different room, and labelling it with today's name
+    silently misattributes energy. Returns (display, prior) -- `prior` is set
+    only when the range straddles the move, where no single name is correct.
+    """
+    prior = config.PRIOR_ROOMS.get(unit)
+    if not prior or not config.MOVED_ON:
+        return unit, None
+    moved = time.mktime(time.strptime(config.MOVED_ON, "%Y-%m-%d"))
+    if t1 <= moved:
+        return prior, None                 # entirely before the move
+    if t0 >= moved:
+        return unit, None                  # entirely after
+    return unit, prior                     # spans it
+
+
 # ---------------------------------------------------------------- assembly
 
 def rate(con):
@@ -109,6 +130,11 @@ def summary(con, t0, t1, label="", live=None):
 
         # A unit only owes us data for the part of the range it existed for, so
         # a recently installed unit is not mistaken for one with missing history.
+        # a unit that did not exist yet is not part of this range at all --
+        # listing it would also collide with whichever device then held its room
+        installed_at = activated.get(name)
+        installed = not installed_at or installed_at < t1
+
         start = max(t0, activated.get(name, t0))
         expected = max(0.0, (min(t1, now) - start) / 3600)
         covered = store.covered_hours(con, name, start, t1)
@@ -129,12 +155,16 @@ def summary(con, t0, t1, label="", live=None):
             est_kwh = (row.get("est_wh") or 0) / 1000
             est_methods = row.get("methods") or ""
 
-        total_w += state["watts"]
-        if complete:
+        total_w += state["watts"] if installed else 0
+        if complete and installed:
             total_kwh += kwh
+        display, prior = room_label(name, t0, t1)
         units.append({
             **state,
             "name": name,
+            "display": display,
+            "prior_room": prior,
+            "installed": installed,
             "watts": round(state["watts"]),
             "kwh": round(kwh, 3) if complete else None,
             "cost": round(kwh * r, 2) if complete else None,
@@ -149,6 +179,7 @@ def summary(con, t0, t1, label="", live=None):
             "pins": pins or {},
         })
 
+    units = [u for u in units if u["installed"]]
     for u in units:
         u["share"] = (round(100 * u["kwh"] / total_kwh, 1)
                       if (total_kwh and u["complete"]) else None)
@@ -158,9 +189,9 @@ def summary(con, t0, t1, label="", live=None):
     if use_raw:
         series_points = {}
         stamps = set()
-        for device in config.DEVICES:
-            pts = store.series(con, device["name"], config.POWER_PIN, t0, t1)
-            series_points[device["name"]] = dict(pts)
+        for u in units:
+            pts = store.series(con, u["name"], config.POWER_PIN, t0, t1)
+            series_points[u["name"]] = dict(pts)
             stamps.update(p[0] for p in pts)
         stamps = sorted(stamps)
         series = {
@@ -185,9 +216,9 @@ def summary(con, t0, t1, label="", live=None):
             "unit": "kWh",
             "bucket": bucket,
             "units": {
-                d["name"]: [round((vals.get(d["name"], 0) or 0) / 1000, 4)
+                u["name"]: [round((vals.get(u["name"], 0) or 0) / 1000, 4)
                             for _, vals in buckets]
-                for d in config.DEVICES
+                for u in units
             },
         }
 
@@ -241,6 +272,8 @@ def summary(con, t0, t1, label="", live=None):
         },
         "series": series,
         "temps": temps,
+        "moved_on": config.MOVED_ON if any(u["prior_room"] for u in units)
+                    or any(u["display"] != u["name"] for u in units) else None,
         "coverage": {"start": coverage_start, "end": hi},
         "resolution": "raw samples" if use_raw else "hourly rollup",
     }

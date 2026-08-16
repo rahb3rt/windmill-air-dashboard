@@ -262,6 +262,9 @@ let tempLegend = '', outdoorAt = null;
    one never repaints the others. Built once from the server's full ordering. */
 let COLOR_IDX = new Map();
 const colorFor = name => colorOf(COLOR_IDX.get(name) ?? 0);
+/* device name -> the room it was in for the range on screen */
+let ROOM = new Map();
+const roomOf = name => ROOM.get(name) || name;
 
 function toggleUnit(name, isolate) {
   const all = [...COLOR_IDX.keys()];
@@ -306,7 +309,7 @@ function renderChips(d) {
     const on = !state.hidden.has(u.name);
     return `<button class="chip" data-unit="${u.name}" aria-pressed="${on}"
       title="Click to toggle · double-click to show only this one">
-      <i style="background:${colorFor(u.name)}"></i>${u.name}
+      <i style="background:${colorFor(u.name)}"></i>${u.display || u.name}
       <span class="kwh">${u.kwh==null ? '–' : fmt(u.kwh,1)+' kWh'}</span></button>`;
   }).join('');
   document.getElementById('clearFilter').hidden = !state.hidden.size;
@@ -425,7 +428,7 @@ function renderBars(d) {
     if (!u.complete) return `<g class="bar" data-name="${u.name}">
       <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
       <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end"
-        style="opacity:.5">${u.name}</text>
+        style="opacity:.5">${u.display || u.name}</text>
       <rect x="${padL}" y="${y}" width="${plot}" height="18" rx="4" fill="none"
         stroke="${c}" stroke-width="1" stroke-dasharray="3 3" opacity=".45"></rect>
       <text class="lbl2" x="${padL+10}" y="${y+13}">no data · ${fmt(u.missing_h)}h missing</text>
@@ -433,7 +436,7 @@ function renderBars(d) {
     const w = Math.max(2, (u.kwh/max)*plot);
     return `<g class="bar" data-name="${u.name}">
       <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
-      <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end">${u.name}</text>
+      <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end">${u.display || u.name}</text>
       <rect x="${padL}" y="${y}" width="${w}" height="18" rx="4" fill="${c}"></rect>
       <text class="lbl" x="${padL+w+8}" y="${y+13}">${fmt(u.kwh,1)}<tspan
         class="lbl2"> kWh</tspan></text>
@@ -447,7 +450,8 @@ function renderBars(d) {
 
   el.querySelectorAll('.bar').forEach(g => {
     const u = units.find(x => x.name === g.dataset.name);
-    g.addEventListener('mousemove', e => showTip(e, `<b>${u.name}</b>
+    g.addEventListener('mousemove', e => showTip(e, `<b>${u.display || u.name}</b>${
+      u.prior_room ? ` <span style="opacity:.6;font-weight:400">(was ${u.prior_room} before ${d.moved_on})</span>` : ''}
       ${u.complete ? '' : `<div class="tr"><span>History</span><span>${fmt(u.missing_h)}h missing</span></div>`}
       <div class="tr"><span>Energy</span><span>${u.complete?fmt(u.kwh,3)+' kWh':'no data'}</span></div>
       ${u.est_kwh>0.01?`<div class="tr"><span>of which estimated</span>
@@ -526,7 +530,8 @@ function renderTrend(d) {
   const el = document.getElementById('trendChart');
   const s = d.series, names = Object.keys(s.units);
   const setLegend = () => document.getElementById('legend').innerHTML =
-    names.map(n => `<span data-unit="${n}"><i style="background:${colorFor(n)}"></i>${n}</span>`).join('')
+    names.map(n => `<span data-unit="${n}"><i style="background:${colorFor(n)}"></i>${
+      roomOf(n)}</span>`).join('')
     + (tempLegend ? tempLegend : '');
 
   if (!s.t.length || (s.unit==='W' && s.t.length < 2)) {
@@ -673,7 +678,7 @@ function renderLines(d, el, g, setLegend) {
     }).filter(Boolean).sort((a,b)=>b.v-a.v);
     showTip(e, `<b>${clock(t[i])}</b>` + rows.map(r =>
       `<div class="tr"><span><i style="display:inline-block;width:8px;height:8px;
-        border-radius:2px;margin-right:6px;background:${colorFor(r.nm)}"></i>${r.nm}</span>
+        border-radius:2px;margin-right:6px;background:${colorFor(r.nm)}"></i>${roomOf(r.nm)}</span>
         <span>${fmt(r.v)} W</span></div>`).join('')
       + (outdoorAt && outdoorAt(t[i])!=null
           ? `<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);
@@ -699,7 +704,9 @@ function renderCards(d) {
     const mostly = u.complete && u.est_share > 50;
     return `<div class="card" style="${off?'opacity:.55':''}">
       <div class="top"><span class="swatch" style="background:${colorFor(u.name)}"></span>
-        <span class="nm">${u.name}</span><span class="pill">${st}</span></div>
+        <span class="nm">${u.display || u.name}</span><span class="pill">${st}</span></div>
+        ${u.prior_room?`<div class="row" style="margin:-8px 0 8px"><span
+          style="font-size:11px">was ${u.prior_room} before ${d.moved_on}</span><span></span></div>`:''}
       <div class="temps"><span class="now">${u.temp==null?'–':fmt(u.temp)}°</span>
         <span class="tgt">set to ${u.target==null?'–':fmt(u.target)}°</span></div>
       <div class="rows">
@@ -732,7 +739,9 @@ function renderTable(d) {
     ['estimate method', u => (u.est_methods||[]).join(', ') || '–', '–'],
   ];
   document.getElementById('table').innerHTML = `<table>
-    <thead><tr><th>Metric</th>${units.map(u=>`<th>${u.name}</th>`).join('')}<th>Total</th></tr></thead>
+    <thead><tr><th>Metric</th>${units.map(u=>`<th>${u.display || u.name}${
+      u.prior_room?`<div style="font-weight:400;opacity:.65">was ${u.prior_room}</div>`:''
+      }</th>`).join('')}<th>Total</th></tr></thead>
     <tbody>
       ${derived.map(([l,f,tot]) => `<tr><td class="key">${l}</td>
         ${units.map(u=>`<td>${f(u)}</td>`).join('')}<td>${tot}</td></tr>`).join('')}
@@ -999,6 +1008,7 @@ async function load() {
     state.data = d;
     if (COLOR_IDX.size !== d.units.length)
       COLOR_IDX = new Map(d.units.map((u,i) => [u.name, i]));
+    ROOM = new Map(d.units.map(u => [u.name, u.display || u.name]));
     state.hidden = new Set([...state.hidden].filter(n => COLOR_IDX.has(n)));
     const view = filtered(d);
     document.querySelectorAll('#presets button').forEach(b =>
