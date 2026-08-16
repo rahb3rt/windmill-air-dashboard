@@ -107,12 +107,13 @@
   .stat .u { font-size:14px; font-weight:500; color:var(--text-secondary); margin-left:3px; }
   .stat .n { font-size:12px; color:var(--text-muted); margin-top:5px; }
 
-  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(196px,1fr)); gap:10px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(238px,1fr)); gap:10px; }
   .card { border:1px solid var(--border); border-radius:10px; padding:14px 15px; }
   .card .top { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
   .swatch { width:9px; height:9px; border-radius:2px; flex:none; }
-  .card .nm { font-weight:580; font-size:14.5px; }
-  .pill { margin-left:auto; font-size:11px; padding:2px 7px; border-radius:20px;
+  .card .nm { font-weight:580; font-size:14.5px; white-space:nowrap; overflow:hidden;
+              text-overflow:ellipsis; }
+  .pill { margin-left:auto; font-size:11px; padding:2px 7px; border-radius:20px; flex:none;
           border:1px solid var(--border); color:var(--text-secondary); white-space:nowrap; }
   .temps { display:flex; align-items:baseline; gap:6px; margin-bottom:12px; }
   .temps .now { font-size:30px; font-weight:600; letter-spacing:-.02em; }
@@ -191,7 +192,7 @@
       <div id="barChart"></div>
     </section>
 
-    <section class="span5" id="tempSection">
+    <section class="span8" id="tempSection">
       <h2 id="tempTitle">Temperature</h2>
       <p class="sub" id="tempSub"></p>
       <div id="tempChart"></div>
@@ -201,24 +202,24 @@
       </div>
     </section>
 
-    <section class="span7">
+    <section class="span4" id="curveSection" hidden>
+      <h2 id="curveTitle">Days needed to pay off</h2>
+      <p class="sub" id="curveSub"></p>
+      <div class="scroll" id="curveTable"></div>
+    </section>
+
+    <section class="span12">
       <h2>Units</h2>
       <p class="sub" id="unitsSub"></p>
       <div class="cards" id="cards"></div>
     </section>
 
-    <section class="span7" id="compareSection" hidden>
+    <section class="span8" id="compareSection" hidden>
       <h2 id="compareTitle">Before vs after</h2>
       <div class="stats" id="paybackStats" style="margin-bottom:14px"></div>
       <p class="sub" id="compareSub"></p>
       <div class="scroll" id="compareTable"></div>
       <p class="note" id="compareNote"></p>
-    </section>
-
-    <section class="span5" id="curveSection" hidden>
-      <h2 id="curveTitle">Days needed to pay off</h2>
-      <p class="sub" id="curveSub"></p>
-      <div class="scroll" id="curveTable"></div>
     </section>
 
     <section class="span12">
@@ -408,9 +409,15 @@ function renderBars(d) {
   const max = Math.max(...units.map(u => u.kwh ?? 0), .001);
 
   const W = Math.max(300, el.clientWidth || 900);
-  const wide = W > 560;
-  const rowH = wide ? 34 : 30, padL = wide ? 138 : 104, padR = wide ? 150 : 58;
-  const plot = Math.max(40, W - padL - padR);
+  const wide = W > 500;
+  const rowH = wide ? 34 : 31;
+  // longest name decides the left gutter; the value label rides just past each
+  // bar, so the bars are scaled into what is left after reserving room for both
+  const nameW = Math.min(150, 8 + 7.2 * Math.max(...d.units.map(u => u.name.length)));
+  const padL = Math.round(nameW) + 14;
+  const padR = wide ? 108 : 8;                       // right column: $cost · share%
+  const valueW = 74;                                 // "183.53 kWh"
+  const plot = Math.max(30, W - padL - padR - valueW);
   const H = units.length * rowH + 8;
 
   const bars = units.map((u,i) => {
@@ -421,16 +428,17 @@ function renderBars(d) {
         style="opacity:.5">${u.name}</text>
       <rect x="${padL}" y="${y}" width="${plot}" height="18" rx="4" fill="none"
         stroke="${c}" stroke-width="1" stroke-dasharray="3 3" opacity=".45"></rect>
-      <text class="lbl2" x="${padL+10}" y="${y+13}">no data — ${fmt(u.missing_h)}h missing</text>
+      <text class="lbl2" x="${padL+10}" y="${y+13}">no data · ${fmt(u.missing_h)}h missing</text>
     </g>`;
     const w = Math.max(2, (u.kwh/max)*plot);
     return `<g class="bar" data-name="${u.name}">
       <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
       <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end">${u.name}</text>
       <rect x="${padL}" y="${y}" width="${w}" height="18" rx="4" fill="${c}"></rect>
-      <text class="lbl" x="${padL+w+8}" y="${y+13}">${fmt(u.kwh,2)} kWh</text>
-      <text class="lbl2" x="${W}" y="${y+13}" text-anchor="end">${
-        wide ? `$${fmt(u.cost,2)} · ` : ''}${fmt(u.share,1)}%</text>
+      <text class="lbl" x="${padL+w+8}" y="${y+13}">${fmt(u.kwh,1)}<tspan
+        class="lbl2"> kWh</tspan></text>
+      ${wide ? `<text class="lbl2" x="${W}" y="${y+13}" text-anchor="end"
+        >$${fmt(u.cost,2)} · ${fmt(u.share,1)}%</text>` : ''}
     </g>`;
   }).join('');
 
@@ -500,8 +508,8 @@ function tempOverlay(d, xOf, yTop, yBot, xRight) {
       <path d="${path}" fill="none" stroke="${ink}" stroke-width="1.75"
         stroke-dasharray="5 3" stroke-linejoin="round" stroke-linecap="round"
         opacity=".85"></path>${axis}
-      <text class="tick" x="${xRight+6}" y="${yTop-4}" text-anchor="start"
-        style="fill:${ink}">°F out</text></g>`,
+      <text class="tick" x="${xRight+6}" y="10" text-anchor="start"
+        style="fill:${ink}">°F</text></g>`,
   };
 }
 
@@ -529,7 +537,7 @@ function renderTrend(d) {
   }
   tempLegend = '';
   const W = Math.max(300, el.clientWidth || 900), H = 280;
-  const padL = 52, padR = state.showTemp ? 44 : 12, padT = 14, padB = 28;
+  const padL = 52, padR = state.showTemp ? 46 : 12, padT = 26, padB = 28;
   const x0 = padL, x1 = W - padR, y0 = H - padB, y1 = padT;
 
   if (s.unit === 'W') return renderLines(d, el, {W,H,padL,padR,padT,padB}, setLegend);
@@ -573,7 +581,7 @@ function renderTrend(d) {
       aria-label="Energy per period by unit, with outdoor temperature overlaid">
     ${grid}${cols}${xlabels}${bd.svg}
     <line class="baseline" x1="${x0}" x2="${x1}" y1="${y0}" y2="${y0}"></line>
-    <text class="tick" x="${x0-8}" y="${y1-2}" text-anchor="end">kWh</text></svg>`;
+    <text class="tick" x="${x0-8}" y="10" text-anchor="end">kWh</text></svg>`;
 
   el.querySelectorAll('.col').forEach(g => {
     const i = +g.dataset.i;
@@ -646,7 +654,7 @@ function renderLines(d, el, g, setLegend) {
     ${bd.svg}
     <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
       fill="transparent" id="hit"></rect>
-    <text class="tick" x="${padL-8}" y="${padT-2}" text-anchor="end">W</text></svg>`;
+    <text class="tick" x="${padL-8}" y="10" text-anchor="end">W</text></svg>`;
 
   const svg = el.querySelector('svg'), cross = el.querySelector('#cross');
   const vline = cross.querySelector('line'), dots = [...cross.querySelectorAll('circle')];
@@ -757,7 +765,7 @@ function renderTemps(d) {
   const vals = [...tp.indoor, ...tp.outdoor].filter(v => v != null);
   const lo = Math.floor(Math.min(...vals)/5)*5, hi = Math.ceil(Math.max(...vals)/5)*5;
   const W = Math.max(300, el.clientWidth || 900), H = 230;
-  const padL = 46, padR = 12, padT = 10, padB = 28;
+  const padL = 52, padR = state.showTemp ? 46 : 12, padT = 26, padB = 28;
   const X = i => padL + (i/(t.length-1))*(W-padL-padR);
   const Y = v => padT + (1 - (v-lo)/(hi-lo || 1))*(H-padT-padB);
 
@@ -794,7 +802,7 @@ function renderTemps(d) {
     </g>
     <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
       fill="transparent" id="thit"></rect>
-    <text class="tick" x="${padL-8}" y="${padT-2}" text-anchor="end">°F</text></svg>`;
+    <text class="tick" x="${padL-8}" y="10" text-anchor="end">°F</text></svg>`;
 
   const svg = el.querySelector('svg'), cr = el.querySelector('#tcross');
   const vl = cr.querySelector('line'), dots=[...cr.querySelectorAll('circle')];
