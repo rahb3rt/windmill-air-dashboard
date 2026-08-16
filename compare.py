@@ -78,6 +78,10 @@ def main():
         print(f"  ! {', '.join(c['imputed'])} lacks history here; imputed at "
               f"{c['impute_band'][0]:.1f}-{c['impute_band'][1]:.1f} kWh/day from siblings "
               f"-- that is the range shown above.")
+    if c.get("estimate_heavy"):
+        print(f"  ! {c['est_share_after']:.0f}% of the AFTER period and "
+              f"{c['est_share_before']:.0f}% of BEFORE is reconstructed, not measured. "
+              f"Re-run once real data replaces it.")
     if c["weak"]:
         print(f"  ! Thin fit (n={b['n']}/{a['n']}). Directional only; re-run as days accumulate.")
 

@@ -113,13 +113,17 @@ def outdoor_series(con, t0, t1):
 # ---------------------------------------------------------------- energy
 
 def daily_totals(con):
-    """{day: {unit: kWh}} from the hourly rollup."""
-    days = {}
-    for r in con.execute("SELECT unit, hour, wh FROM hourly ORDER BY hour"):
+    """({day: {unit: kWh}}, {day: estimated kWh}) from the hourly rollup."""
+    days, est = {}, {}
+    for r in con.execute(
+            "SELECT unit, hour, wh, COALESCE(estimated,0) e FROM hourly ORDER BY hour"):
         key = time.strftime("%Y-%m-%d", time.localtime(r["hour"]))
+        kwh = (r["wh"] or 0) / 1000
         days.setdefault(key, {})[r["unit"]] = \
-            days.setdefault(key, {}).get(r["unit"], 0.0) + (r["wh"] or 0) / 1000
-    return days
+            days.setdefault(key, {}).get(r["unit"], 0.0) + kwh
+        if r["e"]:
+            est[key] = est.get(key, 0.0) + kwh
+    return days, est
 
 
 def fit(points):
@@ -151,7 +155,7 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
 
     rate = rate if rate is not None else float(
         store.get_meta(con, "rate_per_kwh", config.RATE_PER_KWH))
-    days = daily_totals(con)
+    days, est_by_day = daily_totals(con)
     if not days:
         return {"available": False, "reason": "No history yet"}
 
@@ -187,6 +191,14 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
             pre.append((cdd, total))
         elif day >= resume:
             post.append((cdd, total))
+
+    def est_share(day_list):
+        tot = sum(sum(days[d].values()) for d in day_list)
+        e = sum(est_by_day.get(d, 0.0) for d in day_list)
+        return round(100 * e / tot, 1) if tot else 0.0
+
+    pre_days = [d for d in sorted(days) if d < change and d in wx and d != partial]
+    est_pre, est_post = est_share(pre_days), est_share(post_days)
 
     fp, fq = fit(pre), fit(post)
     if not (fp and fq):
@@ -250,10 +262,13 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
         "before": fp, "after": fq,
         "breakeven_lo": round(BASE_F + be_lo, 1) if be_lo else None,
         "breakeven_hi": round(BASE_F + be_hi, 1) if be_hi else None,
+        "est_share_before": est_pre,
+        "est_share_after": est_post,
         "extrapolated": bool(be_lo and be_lo > fp["cdd_hi"]),
         "observed_hi_f": round(BASE_F + fp["cdd_hi"], 1),
         "per_degree": round(-d_slope * rate, 3),
         "rows": rows,
         "climate": climate,
         "weak": min(fp["r2"], fq["r2"]) < 0.5 or min(fp["n"], fq["n"]) < 10,
+        "estimate_heavy": max(est_pre, est_post) >= 10,
     }

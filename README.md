@@ -82,10 +82,33 @@ So repair always attempts a real fetch first and only reconstructs what a fetch
 cannot return. Leave `serve.py` running and gaps close by themselves as quotas
 reset and units reconnect.
 
-It also refuses to reconstruct when the unit genuinely wasn't running — if the
-cumulative runtime counter didn't advance across the gap, the unit was off and
-zero is the correct answer. The one thing this misses is a unit that was powered
-but idle while disconnected; its standby draw (tens of watts) goes unrecorded.
+### Estimate tiers
+
+Every gap gets filled, but not every fill is worth the same, so each hour records
+*how* it was produced and the weaker methods are replaced first:
+
+| Method | Magnitude comes from | Used when |
+|---|---|---|
+| *(measured)* | the unit itself | always preferred |
+| `runtime` | the unit's own cumulative runtime counter | it ran while disconnected |
+| `idle` | the unit's own median standby draw | the counter shows it never ran |
+| `cohort` | units installed alongside it | no counter reachable at all |
+
+`cohort` is the weakest — its magnitude comes entirely from other units — so it
+is the first thing overwritten. An estimate is never downgraded: a cohort guess
+cannot overwrite a runtime reconstruction.
+
+### Real data always wins
+
+Estimates are placeholders. Any hour holding an estimate is overwritten the
+moment a real fetch returns that hour, and the `estimated` flag and `method` are
+cleared with it. Nothing measured is ever overwritten by an estimate. This is
+verified by corrupting a known-good hour into a fake estimate, re-fetching, and
+asserting the real value returns.
+
+Because estimates propagate into every total, the dashboard reports the
+estimated share per unit and the before/after analysis refuses to present a
+conclusion without saying how much of each period is reconstructed.
 
 ## Reconstructing hours a unit ran without reporting
 

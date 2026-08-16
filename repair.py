@@ -60,7 +60,7 @@ def repair_unit(con, device, dry_run=False):
 
     missing_before = sum((b - a) // 3600 + 1 for a, b in before)
     recovered = estimated = 0
-    notes = []
+    notes, methods = [], {}
 
     # 1. real data first. Not forced: backfill's own 6h refresh window keeps a
     # unit with a long-standing gap from spending its whole daily quota retrying.
@@ -70,25 +70,37 @@ def repair_unit(con, device, dry_run=False):
             notes.append(f"fetch {r['status']}: {r.get('detail', '')[:60]}")
         backfill.fetch_temp(con, device)
 
-    # 2. reconstruct only what a fetch cannot return
-    still = gaps(con, unit)
-    if still:
+    # 2. reconstruct what a fetch cannot return, strongest method first
+    claimed = set()
+    if gaps(con, unit):
         try:
             g = gapfill.fill(con, unit, dry_run=dry_run)
             if g["status"] in ("filled", "would fill"):
-                estimated = g["hours"]
-                notes.append(f"{g['kwh']} kWh over {g['gap_runtime_h']}h runtime")
+                claimed = set(g.get("touched", ()))
+                estimated += g["hours"]
+                methods.update(g.get("methods", {}))
+                notes.append(f"{g['kwh']} kWh ({', '.join(
+                    f'{v}h {k}' for k, v in g.get('methods', {}).items())})")
             else:
                 notes.append(g["status"])
         except Exception as exc:
-            notes.append(f"gapfill failed: {exc}")
+            notes.append(f"runtime estimate unavailable: {str(exc)[:40]}")
+
+    # 3. last resort: no runtime counter reachable at all, so borrow from the
+    #    units installed alongside this one. Weakest estimate, replaced first.
+    if gaps(con, unit):
+        c = gapfill.cohort_fill(con, unit, dry_run=dry_run, exclude=claimed)
+        if c["status"] in ("filled", "would fill") and c["hours"]:
+            estimated += c["hours"]
+            methods["cohort"] = c["hours"]
+            notes.append(f"{c['kwh']} kWh from {', '.join(c['peers'])}")
 
     after = sum((b - a) // 3600 + 1 for a, b in gaps(con, unit))
     # closed by a real fetch = everything closed that was not reconstructed
     recovered = max(0, missing_before - after - estimated)
     return {"unit": unit, "status": "repaired" if missing_before != after else "unchanged",
             "missing_before": missing_before, "missing_after": after,
-            "recovered": recovered, "estimated": estimated,
+            "recovered": recovered, "estimated": estimated, "methods": methods,
             "note": "; ".join(n for n in notes if n)}
 
 

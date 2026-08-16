@@ -320,7 +320,9 @@ function renderBars(d) {
     g.addEventListener('mousemove', e => showTip(e, `<b>${u.name}</b>
       ${u.complete ? '' : `<div class="tr"><span>History</span><span>${fmt(u.missing_h)}h missing</span></div>`}
       <div class="tr"><span>Energy</span><span>${u.complete?fmt(u.kwh,3)+' kWh':'no data'}</span></div>
-      ${u.est_kwh>0.01?`<div class="tr"><span>of which estimated</span><span>${fmt(u.est_kwh,2)} kWh</span></div>`:''}
+      ${u.est_kwh>0.01?`<div class="tr"><span>of which estimated</span>
+        <span>${fmt(u.est_kwh,2)} kWh (${fmt(u.est_share,0)}%)</span></div>
+        <div class="tr"><span>estimated by</span><span>${(u.est_methods||[]).join(', ')}</span></div>`:''}
       <div class="tr"><span>Cost</span><span>$${fmt(u.cost,2)}</span></div>
       <div class="tr"><span>Share</span><span>${fmt(u.share,1)}%</span></div>
       <div class="tr"><span>Compressor</span><span>${dur(u.cooling_min)}</span></div>
@@ -544,6 +546,7 @@ function renderCards(d) {
   document.getElementById('cards').innerHTML = d.units.map((u,i) => {
     const off = !u.online;
     const st = off ? 'Offline' : (u.on ? `${u.mode} · fan ${u.fan}` : 'Off');
+    const mostly = u.complete && u.est_share > 50;
     return `<div class="card" style="${off?'opacity:.55':''}">
       <div class="top"><span class="swatch" style="background:${colorOf(i)}"></span>
         <span class="nm">${u.name}</span><span class="pill">${st}</span></div>
@@ -551,7 +554,10 @@ function renderCards(d) {
         <span class="tgt">set to ${u.target==null?'–':fmt(u.target)}°</span></div>
       <div class="rows">
         <div class="row"><span>Drawing now</span><span>${fmt(u.watts)} W</span></div>
-        <div class="row"><span>Energy</span><span>${u.complete?fmt(u.kwh,2)+' kWh':'no data'}</span></div>
+        <div class="row"><span>Energy</span><span>${u.complete
+          ? fmt(u.kwh,2)+' kWh'+(mostly?' *':'') : 'no data'}</span></div>
+        ${mostly?`<div class="row"><span style="font-size:11.5px">* ${fmt(u.est_share,0)}% estimated
+          (${(u.est_methods||[]).join(', ')})</span><span></span></div>`:''}
         <div class="row"><span>Cost</span><span>${u.complete?'$'+fmt(u.cost,2):'–'}</span></div>
         <div class="row"><span>Compressor</span><span>${u.complete?dur(u.cooling_min):'–'}</span></div>
         <div class="row"><span>Share</span><span>${u.complete?fmt(u.share,1)+'%':'–'}</span></div>
@@ -570,8 +576,10 @@ function renderTable(d) {
     ['Peak draw (W)', u => fmt(u.peak_w), '–'],
     ['Share of total', u => u.complete?fmt(u.share,1)+'%':'–', '100%'],
     ['History coverage', u => fmt(u.coverage*100,0)+'%', '–'],
-    ['of which reconstructed', u => u.est_kwh>0.01?fmt(u.est_kwh,2)+' kWh':'–',
+    ['of which reconstructed', u => u.est_kwh>0.01
+        ? `${fmt(u.est_kwh,2)} kWh (${fmt(u.est_share,0)}%)` : '–',
       d.totals.est_kwh>0.01?fmt(d.totals.est_kwh,2)+' kWh':'–'],
+    ['estimate method', u => (u.est_methods||[]).join(', ') || '–', '–'],
   ];
   document.getElementById('table').innerHTML = `<table>
     <thead><tr><th>Metric</th>${units.map(u=>`<th>${u.name}</th>`).join('')}<th>Total</th></tr></thead>
@@ -757,6 +765,10 @@ function renderCompare(c) {
   + `so ${c.imputed.length>1?'they are':'it is'} imputed at `
   + `${fmt(c.impute_band[0],1)}–${fmt(c.impute_band[1],1)} kWh/day from sibling units — `
   + `that is the range shown in every figure above.`);
+  if (c.estimate_heavy) notes.push(
+    `${fmt(c.est_share_after,0)}% of the after period and ${fmt(c.est_share_before,0)}% `
+  + `of the before period is reconstructed rather than measured — these figures `
+  + `shift when real data replaces it.`);
   if (c.weak) notes.push(
     `Thin fit (n=${c.before.n} before, ${c.after.n} after). Directional only; `
   + `it sharpens as more days accumulate.`);

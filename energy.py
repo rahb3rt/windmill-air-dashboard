@@ -120,12 +120,14 @@ def summary(con, t0, t1, label="", live=None):
             kwh, cooling, _ = integrate_points(pts, t_end=min(t1, time.time()))
             peak = max([v for _, v in pts], default=0)
             est_kwh = 0.0
+            est_methods = ""
         else:
             row = totals_by_unit.get(name, {})
             kwh = (row.get("wh") or 0) / 1000
             cooling = row.get("cooling_s") or 0
             peak = row.get("w_max") or 0
             est_kwh = (row.get("est_wh") or 0) / 1000
+            est_methods = row.get("methods") or ""
 
         total_w += state["watts"]
         if complete:
@@ -140,6 +142,8 @@ def summary(con, t0, t1, label="", live=None):
             "peak_w": round(peak),
             "complete": complete,
             "est_kwh": round(est_kwh, 3),
+            "est_share": round(100 * est_kwh / kwh, 1) if kwh > 0 else 0.0,
+            "est_methods": sorted(m for m in est_methods.split(",") if m),
             "coverage": round(ratio, 3),
             "missing_h": round(max(0.0, expected - covered)),
             "pins": pins or {},

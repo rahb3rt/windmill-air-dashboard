@@ -75,6 +75,10 @@ def connect():
     if "temp_f" not in cols:
         con.execute("ALTER TABLE hourly ADD COLUMN temp_f REAL")
         con.commit()
+    if "method" not in cols:
+        # how an estimated hour was produced: runtime | idle | cohort
+        con.execute("ALTER TABLE hourly ADD COLUMN method TEXT")
+        con.commit()
     return con
 
 
@@ -204,7 +208,8 @@ def rollup_range(con, t0, t1):
     """Per-unit totals over [t0,t1) straight from the hourly table."""
     rows = con.execute(
         "SELECT unit, SUM(wh) wh, SUM(cooling_s) cooling_s, SUM(on_s) on_s, "
-        "MAX(w_max) w_max, SUM(CASE WHEN estimated THEN wh ELSE 0 END) est_wh "
+        "MAX(w_max) w_max, SUM(CASE WHEN estimated THEN wh ELSE 0 END) est_wh, "
+        "GROUP_CONCAT(DISTINCT method) methods "
         "FROM hourly WHERE hour>=? AND hour<? GROUP BY unit",
         (hour_of(t0), t1)).fetchall()
     return {r["unit"]: dict(r) for r in rows}
