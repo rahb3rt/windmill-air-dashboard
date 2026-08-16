@@ -48,14 +48,26 @@ only the initial default.
 
 ## Comparing before and after a change
 
-```bash
-python3 compare.py 2026-08-08 --new "Kitchen,Living Room,Spare Room"
-```
+Set `WINDMILL_CHANGE_DATE` and `WINDMILL_NEW_UNITS` in `.env` and the dashboard
+grows a **Before vs after** section — a break-even table showing at what outdoor
+temperature the two configurations cost the same, and how much you pay above and
+below it. `python3 compare.py` prints the same analysis in the terminal.
 
 Raw before/after kWh mostly measures the weather. This regresses daily household
-kWh against cooling degree days (daily mean above 65 F, from Open-Meteo) for each
-period and predicts what each configuration would use on identically warm days.
-Check the reported R-squared and sample count before trusting it.
+kWh against cooling degree days (daily mean above 65 °F, from Open-Meteo, cached
+permanently in SQLite) for each period, then solves for where the two lines cross.
+
+Both surfaces state their own weaknesses rather than leaving you to infer them:
+
+- **Extrapolation.** The break-even usually sits beyond the hottest day in the
+  fit. It is labelled when so, with the observed maximum alongside it.
+- **Missing units.** A unit without history across the period is not counted as
+  zero — it is imputed from its siblings, and every figure it touches becomes a
+  low–high band.
+- **Thin fits.** R² and sample count are shown, with an explicit warning when the
+  data cannot yet carry a confident conclusion.
+- **Local climate.** How often break-even is actually reached in your summers,
+  and the net effect over a full cooling season.
 
 Note that device *names* follow the physical unit, not the room. If units get
 moved between rooms, a unit's history spans both, so per-room comparisons across

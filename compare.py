@@ -1,139 +1,85 @@
 #!/usr/bin/env python3
-"""Weather-normalized before/after comparison around a change to the system.
+"""Print the before/after comparison that the dashboard shows.
 
-    python3 compare.py 2026-08-08 --new "Kitchen,Living Room,Spare Room"
+    python3 compare.py
+    python3 compare.py --change 2026-08-08 --new "Kitchen,Living Room,Spare Room"
 
-Comparing raw kWh before and after a change mostly measures the weather, not
-the change. This regresses daily household kWh against cooling degree days
-(daily mean temperature above 65F, from Open-Meteo for the ZIP in .env) for
-each period, then predicts what each configuration would use on identically
-warm days.
-
-Read the R-squared and sample count before trusting the result: a handful of
-post-change days spanning a narrow temperature band cannot support a
-confident answer, however precise the numbers look.
+Defaults come from WINDMILL_CHANGE_DATE and WINDMILL_NEW_UNITS in .env. All the
+maths lives in analysis.py so this and the page can never disagree.
 """
 import argparse
-import datetime as dt
-import json
-import time
-import urllib.parse
-import urllib.request
 
+import analysis
 import store
-
-BASE_F = 65.0
-LAT, LON = 40.7128, -74.0060     # New Haven, CT (06512)
-
-
-def daily_kwh(con, new_units):
-    rows = con.execute("SELECT unit, hour, wh FROM hourly ORDER BY hour").fetchall()
-    days = {}
-    for r in rows:
-        key = time.strftime("%Y-%m-%d", time.localtime(r["hour"]))
-        e = days.setdefault(key, {"old": 0.0, "new": 0.0})
-        e["new" if r["unit"] in new_units else "old"] += (r["wh"] or 0) / 1000
-    return days
-
-
-def weather(start, end):
-    q = urllib.parse.urlencode({
-        "latitude": LAT, "longitude": LON, "start_date": start, "end_date": end,
-        "daily": "temperature_2m_mean", "temperature_unit": "fahrenheit",
-        "timezone": "America/New_York",
-    })
-    url = f"https://archive-api.open-meteo.com/v1/archive?{q}"
-    with urllib.request.urlopen(url, timeout=30) as r:
-        d = json.load(r)["daily"]
-    return {day: t for day, t in zip(d["time"], d["temperature_2m_mean"]) if t is not None}
-
-
-def fit(points):
-    """Least squares kWh = a + b*CDD. Returns (a, b, r2, n)."""
-    n = len(points)
-    if n < 3:
-        return None
-    sx = sum(x for x, _ in points); sy = sum(y for _, y in points)
-    sxx = sum(x * x for x, _ in points); sxy = sum(x * y for x, y in points)
-    den = n * sxx - sx * sx
-    if not den:
-        return None
-    b = (n * sxy - sx * sy) / den
-    a = (sy - b * sx) / n
-    ybar = sy / n
-    sst = sum((y - ybar) ** 2 for _, y in points)
-    ssr = sum((y - (a + b * x)) ** 2 for x, y in points)
-    return a, b, (1 - ssr / sst) if sst else 0.0, n
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("changepoint", help="YYYY-MM-DD the new units came online")
-    p.add_argument("--new", default="", help="comma-separated names of the added units")
+    p.add_argument("--change", help="YYYY-MM-DD the new units came online")
+    p.add_argument("--new", help="comma-separated names of the added units")
     p.add_argument("--settle", type=int, default=2,
-                   help="days to discard after the change (install/setup noise)")
-    p.add_argument("--rate", type=float, default=None, help="$/kWh override")
+                   help="days to discard after the change as install noise")
     args = p.parse_args()
 
     con = store.connect()
-    rate = args.rate if args.rate is not None else float(
-        store.get_meta(con, "rate_per_kwh", 0.105))
-    new_units = {s.strip() for s in args.new.split(",") if s.strip()}
+    c = analysis.comparison(
+        con, change=args.change,
+        new_units=args.new.split(",") if args.new else None,
+        settle=args.settle)
 
-    days = daily_kwh(con, new_units)
-    if not days:
-        raise SystemExit("no history yet")
-    lo, hi = min(days), max(days)
-    wx = weather(lo, hi)
+    if not c["available"]:
+        raise SystemExit(c["reason"])
 
-    change = args.changepoint
-    resume = (dt.date.fromisoformat(change) + dt.timedelta(days=args.settle + 1)).isoformat()
-    # the final day is usually partial; drop it
-    partial = max(days)
+    money = lambda v: f"{'-' if v < 0 else '+'}${abs(v):,.2f}"
+    b, a = c["before"], c["after"]
+    print(f"{len(c['new_units'])} units added {c['change']} "
+          f"({', '.join(c['new_units'])}); "
+          f"{c['change']}..{c['resume']} discarded as install noise\n")
+    print(f"BEFORE  n={b['n']:<3} kWh = {b['a']:6.2f} + {b['b']:5.2f} x CDD  "
+          f"R2={b['r2']:.2f}  observed {65+b['cdd_lo']:.1f}-{65+b['cdd_hi']:.1f}F")
+    print(f"AFTER   n={a['n']:<3} kWh = {a['a']:6.2f} + {a['b']:5.2f} x CDD  "
+          f"R2={a['r2']:.2f}  observed {65+a['cdd_lo']:.1f}-{65+a['cdd_hi']:.1f}F")
 
-    pre, post = [], []
-    for day in sorted(days):
-        if day not in wx or day == partial:
-            continue
-        cdd = max(0.0, wx[day] - BASE_F)
-        total = days[day]["old"] + days[day]["new"]
-        if day < change:
-            pre.append((cdd, total))
-        elif day >= resume:
-            post.append((cdd, total))
+    print(f"\nAt ${c['rate']:.3f}/kWh, each degree warmer narrows the gap by "
+          f"${c['per_degree']:.3f}/day\n")
+    gap = (c["climate"] or {}).get("high_gap", 7.0)
+    print(f"{'mean F':>7}{'~high':>7}{'before':>8}{'after':>14}"
+          f"{'extra/day':>20}{'extra/month':>22}")
+    for r in c["rows"]:
+        after = (f"{r['after_lo']:.1f}" if r["after_hi"] == r["after_lo"]
+                 else f"{r['after_lo']:.1f}-{r['after_hi']:.1f}")
+        d = (f"{money(r['delta_lo']*c['rate'])}" if r["delta_hi"] == r["delta_lo"]
+             else f"{money(r['delta_lo']*c['rate'])} to {money(r['delta_hi']*c['rate'])}")
+        m = (f"{money(r['delta_lo']*c['rate']*30)}" if r["delta_hi"] == r["delta_lo"]
+             else f"{money(r['delta_lo']*c['rate']*30)} to {money(r['delta_hi']*c['rate']*30)}")
+        print(f"{r['mean_f']:>7.0f}{r['mean_f']+gap:>7.0f}{r['before']:>8.1f}"
+              f"{after:>14}{d:>20}{m:>22}")
 
-    fp, fq = fit(pre), fit(post)
-    print(f"history {lo} -> {hi}   change {change}   "
-          f"discarded {change}..{resume} as install noise\n")
-    for label, f, pts in (("BEFORE", fp, pre), ("AFTER ", fq, post)):
-        if not f:
-            print(f"{label}  too few days ({len(pts)})"); continue
-        a, b, r2, n = f
-        print(f"{label}  n={n:<3} kWh = {a:6.2f} + {b:5.2f} x CDD   R2={r2:.2f}   "
-              f"CDD range {min(x for x,_ in pts):.1f}-{max(x for x,_ in pts):.1f}")
+    if c["breakeven_lo"]:
+        be = (f"{c['breakeven_lo']:.1f}F" if not c["breakeven_hi"]
+              or abs(c["breakeven_hi"] - c["breakeven_lo"]) < 0.1
+              else f"{c['breakeven_lo']:.1f}-{c['breakeven_hi']:.1f}F")
+        print(f"\nBreak-even at a daily mean of {be} (a high near "
+              f"{c['breakeven_lo']+gap:.0f}F).")
+    else:
+        print("\nNo break-even: the newer setup is cheaper at every temperature.")
 
-    if not (fp and fq):
-        return
-    ap, bp, r2p, np_ = fp
-    aq, bq, r2q, nq = fq
-    print(f"\nPredicted daily use at matched weather, at ${rate:.3f}/kWh:")
-    print(f"{'mean F':>8}{'CDD':>6}{'before':>9}{'after':>9}{'change':>9}{'$/month':>10}")
-    for cdd in (5, 7.5, 10, 12.5, 15):
-        before, after = ap + bp * cdd, aq + bq * cdd
-        delta = after - before
-        print(f"{BASE_F+cdd:>8.1f}{cdd:>6}{before:>9.1f}{after:>9.1f}"
-              f"{delta:>+9.1f}{delta*rate*30:>+10.2f}")
+    cl = c["climate"]
+    if cl:
+        print(f"  In {', '.join(cl['seasons'])} local summers that happened "
+              f"{cl['days_above_be']:.1f}x per season "
+              f"(hottest daily mean on record {cl['hottest_mean']:.1f}F).")
+        print(f"  Net effect over a full cooling season: {money(cl['season_cost'])}.")
 
-    if min(r2p, r2q) < 0.5 or min(np_, nq) < 10:
-        print(f"\nWeak fit (R2 {r2p:.2f}/{r2q:.2f}, n {np_}/{nq}). Directional only -- "
-              f"re-run once more days accumulate.")
-
-    if new_units:
-        old_pre = [days[d]["old"] for d in sorted(days) if d < change and d != partial]
-        old_post = [days[d]["old"] for d in sorted(days) if d >= resume and d != partial]
-        if old_pre and old_post:
-            print(f"\nPre-existing units alone: {sum(old_pre)/len(old_pre):.1f} kWh/day before"
-                  f" -> {sum(old_post)/len(old_post):.1f} kWh/day after")
+    if c["extrapolated"]:
+        print(f"\n  ! Break-even is extrapolated past the hottest day in the fit "
+              f"({c['observed_hi_f']:.1f}F). Read it as 'well beyond anything observed'.")
+    if c["imputed"]:
+        print(f"  ! {', '.join(c['imputed'])} lacks history here; imputed at "
+              f"{c['impute_band'][0]:.1f}-{c['impute_band'][1]:.1f} kWh/day from siblings "
+              f"-- that is the range shown above.")
+    if c["weak"]:
+        print(f"  ! Thin fit (n={b['n']}/{a['n']}). Directional only; re-run as days accumulate.")
 
 
 if __name__ == "__main__":

@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS exports (
   PRIMARY KEY (unit, dsid, period)
 );
 
+CREATE TABLE IF NOT EXISTS weather (
+  day TEXT PRIMARY KEY, mean_f REAL, max_f REAL
+);
+
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
 

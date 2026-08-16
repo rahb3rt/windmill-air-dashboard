@@ -27,6 +27,14 @@ HOST = _ENV.get("WINDMILL_HOST", "dashboard.windmillair.com")
 #: Fallback only -- the live rate is stored in the database and edited in the UI.
 RATE_PER_KWH = float(_ENV.get("WINDMILL_RATE_PER_KWH", 0.105))
 
+#: Location for the degree-day normalisation in analysis.py (defaults: New Haven, CT)
+LAT = float(_ENV.get("WINDMILL_LAT", 40.7128))
+LON = float(_ENV.get("WINDMILL_LON", -74.0060))
+
+#: Optional: describe a change to the system so the page can compare before/after.
+CHANGE_DATE = _ENV.get("WINDMILL_CHANGE_DATE", "") or None
+NEW_UNITS = [s.strip() for s in _ENV.get("WINDMILL_NEW_UNITS", "").split(",") if s.strip()]
+
 #: Datastream carrying instantaneous watts. Confirmed as Windmill's "Power"
 #: stream by correlating its CSV export against live pin reads.
 POWER_PIN = _ENV.get("WINDMILL_POWER_PIN", "v15")

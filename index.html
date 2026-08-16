@@ -162,6 +162,13 @@
     <div class="cards" id="cards"></div>
   </section>
 
+  <section id="compareSection" hidden>
+    <h2 id="compareTitle">Before vs after</h2>
+    <p class="sub" id="compareSub"></p>
+    <div class="scroll" id="compareTable"></div>
+    <p class="note" id="compareNote"></p>
+  </section>
+
   <section>
     <h2>All metrics</h2>
     <p class="sub">Live values for every datastream each unit reports. Named rows are
@@ -492,6 +499,77 @@ function renderTable(d) {
     </tbody></table>`;
 }
 
+/* ---------------- before vs after ---------------- */
+function renderCompare(c) {
+  const sec = document.getElementById('compareSection');
+  if (!c || !c.available) {
+    sec.hidden = true;
+    if (c && c.reason) document.getElementById('compareNote').textContent = c.reason;
+    return;
+  }
+  sec.hidden = false;
+  const money = v => (v<0?'−':'+') + '$' + fmt(Math.abs(v),2);
+  const band = (lo,hi) => Math.abs(hi-lo) < 0.005 ? money(lo) : `${money(lo)} to ${money(hi)}`;
+  const nUnits = c.new_units.length;
+
+  const rows = c.rows.map(r => {
+    const cheaper = r.delta_hi < 0;
+    return `<tr>
+      <td class="key">${fmt(r.mean_f)}°F</td>
+      <td class="unmapped">~${fmt(r.mean_f + (c.climate?.high_gap ?? 7))}°F</td>
+      <td>${fmt(r.before,1)}</td>
+      <td>${fmt(r.after_lo,1)}${r.after_hi!==r.after_lo?'–'+fmt(r.after_hi,1):''}</td>
+      <td style="color:${cheaper?'var(--text-primary)':'inherit'}">
+        ${band(r.delta_lo*c.rate, r.delta_hi*c.rate)}</td>
+      <td>${band(r.delta_lo*c.rate*30, r.delta_hi*c.rate*30)}</td></tr>`;
+  }).join('');
+
+  const be = c.breakeven_lo
+    ? (c.breakeven_hi && Math.abs(c.breakeven_hi-c.breakeven_lo) > 0.1
+        ? `${fmt(c.breakeven_lo,1)}–${fmt(c.breakeven_hi,1)}°F`
+        : `${fmt(c.breakeven_lo,1)}°F`)
+    : 'never — the newer setup is cheaper at every temperature';
+
+  document.getElementById('compareTable').innerHTML = `<table>
+    <thead><tr><th>Daily mean</th><th>≈ that day's high</th><th>Before (kWh)</th>
+      <th>After (kWh)</th><th>Extra / day</th><th>Extra / month</th></tr></thead>
+    <tbody>${rows}
+      <tr><td class="key" colspan="4" style="padding-top:14px">
+        <strong>Break-even</strong> — the two setups cost the same at a daily mean of</td>
+        <td colspan="2" style="padding-top:14px"><strong>${be}</strong></td></tr>
+    </tbody></table>`;
+
+  document.getElementById('compareTitle').textContent =
+    `Before vs after — ${nUnits} unit${nUnits>1?'s':''} added ${c.change}`;
+  document.getElementById('compareSub').innerHTML =
+    `Daily household kWh regressed on cooling degree days, so weather is controlled for. `
+  + `Each degree warmer narrows the gap by about $${fmt(c.per_degree,3)}/day. `
+  + `Fits: before <strong>${fmt(c.before.a,1)} + ${fmt(c.before.b,2)}×CDD</strong> `
+  + `(n=${c.before.n}, R²=${fmt(c.before.r2,2)}), after `
+  + `<strong>${fmt(c.after.a,1)} + ${fmt(c.after.b,2)}×CDD</strong> `
+  + `(n=${c.after.n}, R²=${fmt(c.after.r2,2)}).`;
+
+  const notes = [];
+  if (c.climate) notes.push(
+    `In ${c.climate.seasons.join(', ')} local summers, days at or above break-even `
+  + `occurred ${fmt(c.climate.days_above_be,1)}× per season `
+  + `(hottest daily mean on record ${fmt(c.climate.hottest_mean,1)}°F). `
+  + `Net effect over a full cooling season: ${money(c.climate.season_cost)}.`);
+  if (c.extrapolated) notes.push(
+    `Break-even is extrapolated — it sits above the hottest day in the fit `
+  + `(${fmt(c.observed_hi_f,1)}°F daily mean), so treat it as "well beyond anything `
+  + `observed" rather than a precise temperature.`);
+  if (c.imputed.length) notes.push(
+    `${c.imputed.join(', ')} lack${c.imputed.length>1?'':'s'} history for this period, `
+  + `so ${c.imputed.length>1?'they are':'it is'} imputed at `
+  + `${fmt(c.impute_band[0],1)}–${fmt(c.impute_band[1],1)} kWh/day from sibling units — `
+  + `that is the range shown in every figure above.`);
+  if (c.weak) notes.push(
+    `Thin fit (n=${c.before.n} before, ${c.after.n} after). Directional only; `
+  + `it sharpens as more days accumulate.`);
+  document.getElementById('compareNote').innerHTML = notes.join('<br>');
+}
+
 /* ---------------- load ---------------- */
 async function load() {
   const q = state.range ? `range=${state.range}`
@@ -509,6 +587,7 @@ async function load() {
       document.getElementById('to').value = isoDay(d.range.to);
     }
     renderStats(d); renderBars(d); renderTrend(d); renderCards(d); renderTable(d);
+    fetch('/api/comparison').then(r => r.json()).then(renderCompare).catch(() => {});
     document.getElementById('meta').innerHTML =
       `<span class="dot"></span> live · updated ${clock(d.updated)}`;
     document.getElementById('coverage').textContent = d.coverage.start

@@ -13,6 +13,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import analysis
 import backfill
 import blynk
 import config
@@ -100,6 +101,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"results": results})
             except Exception as exc:
                 self._json({"error": str(exc)}, 500)
+            finally:
+                con.close()
+
+        elif url.path == "/api/comparison":
+            con = store.connect()
+            try:
+                self._json(analysis.comparison(
+                    con, change=one("change"), new_units=(
+                        one("new").split(",") if one("new") else None)))
+            except Exception as exc:
+                self._json({"available": False, "reason": str(exc)})
             finally:
                 con.close()
 
