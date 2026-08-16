@@ -179,6 +179,9 @@
     <div class="stats" id="paybackStats" style="margin-bottom:16px"></div>
     <p class="sub" id="compareSub"></p>
     <div class="scroll" id="compareTable"></div>
+    <h2 id="curveTitle" style="margin-top:26px">Days needed to pay off</h2>
+    <p class="sub" id="curveSub"></p>
+    <div class="scroll" id="curveTable"></div>
     <p class="note" id="compareNote"></p>
   </section>
 
@@ -776,6 +779,31 @@ function renderCompare(c) {
   + `(n=${c.before.n}, R²=${fmt(c.before.r2,2)}), after `
   + `<strong>${fmt(c.after.a,1)} + ${fmt(c.after.b,2)}×CDD</strong> `
   + `(n=${c.after.n}, R²=${fmt(c.after.r2,2)}).`;
+
+  // how many days above a given temperature a summer would need
+  const cv = c.payback_curve;
+  if (cv) {
+    const rows = cv.rows.map(r => {
+      const imp = r.days_needed == null;
+      return `<tr${imp?' style="opacity:.62"':''}>
+        <td class="key">${fmt(r.temp_f)}°F</td>
+        <td>${r.saves_per_day!=null ? fmt(r.saves_per_day,2)+' kWh' : '—'}</td>
+        <td>${r.saves_per_day!=null ? '$'+fmt(r.saves_per_day*c.rate,3) : '—'}</td>
+        <td>${imp ? 'never' : fmt(r.days_needed)+' days'}</td>
+        <td>${imp ? '—' : fmt(r.pct_of_summer)+'%'}</td></tr>`;
+    }).join('');
+    document.getElementById('curveTable').innerHTML = `<table>
+      <thead><tr><th>If a day's mean hits</th><th>It saves</th><th></th>
+        <th>Days needed per summer</th><th>Of a ${cv.season_len}-day summer</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+    document.getElementById('curveSub').innerHTML =
+      `Take a real summer, replace its hottest days with days at each temperature, and `
+    + `find how many it takes for the season to net out. Below `
+    + `${fmt(c.breakeven_lo,0)}°F a day costs more rather than less, so no number of `
+    + `them ever pays off — those rows read <em>never</em>. `
+    + `The hottest daily mean in ${(c.climate?.seasons||[]).join(', ')} was `
+    + `<strong>${fmt(cv.hottest_on_record,1)}°F</strong>.`;
+  }
 
   const notes = [];
   if (c.climate) notes.push(

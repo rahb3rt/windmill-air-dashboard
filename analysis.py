@@ -263,6 +263,47 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
                 "seasons": sorted(full_seasons),
             }
 
+    # --- how many days above a given temperature a summer would need
+    #
+    # Asked directly: if D days of a typical summer hit T, does the season net
+    # out? Take a real season, replace its D hottest days with days at T, and
+    # find the smallest D that brings the net to zero. Replacing rather than
+    # adding days is what keeps the answer bounded by the length of a summer --
+    # and is why some thresholds come back impossible however many days hit them.
+    curve = None
+    if hist_all:
+        seasons_sorted = {y: sorted((max(0.0, m - BASE_F) for m in v), reverse=True)
+                          for y, v in per_season_days.items() if len(v) >= 100}
+        if seasons_sorted:
+            # suffix[D] = cost of the season once its D hottest days are removed
+            suffix = {}
+            for y, cdds in seasons_sorted.items():
+                acc, tail = [0.0], 0.0
+                for c in reversed(cdds):
+                    tail += A + B * c
+                    acc.append(tail)
+                suffix[y] = acc[::-1]          # suffix[y][D]
+            season_len = statistics.mean(len(v) for v in seasons_sorted.values())
+            rows_curve = []
+            for temp in (85, 90, 95, 100, 110, 120, 130):
+                d_delta = A + B * (temp - BASE_F)
+                need = None
+                for D in range(0, int(season_len) + 1):
+                    nets = [D * d_delta + (suffix[y][D] if D < len(suffix[y])
+                                           else 0.0) for y in suffix]
+                    if statistics.mean(nets) <= 0:
+                        need = D
+                        break
+                rows_curve.append({
+                    "temp_f": temp,
+                    "saves_per_day": round(-d_delta, 2) if d_delta < 0 else None,
+                    "days_needed": need,
+                    "pct_of_summer": round(100 * need / season_len) if need is not None else None,
+                })
+            curve = {"season_len": round(season_len),
+                     "hottest_on_record": round(max(m for _, m, _ in hist_all), 1),
+                     "rows": rows_curve}
+
     # --- how often the local climate actually reaches break-even
     climate = None
     hist = [(d, m, x) for d, (m, x) in weather_map(con).items() if d[5:7] in SUMMER]
@@ -314,6 +355,7 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
         "rows": rows,
         "climate": climate,
         "payback": payback,
+        "payback_curve": curve,
         "weak": min(fp["r2"], fq["r2"]) < 0.5 or min(fp["n"], fq["n"]) < 10,
         "estimate_heavy": max(est_pre, est_post) >= 10,
     }

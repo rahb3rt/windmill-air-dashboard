@@ -77,6 +77,19 @@ def main():
         print(f"  Cost per cooling season: ${pb['season_deficit_cost']:.0f} "
               f"({pb['season_deficit_kwh']:.0f} kWh).")
 
+    cv = c.get("payback_curve")
+    if cv:
+        print(f"\nDays per summer needed above a given temperature "
+              f"({cv['season_len']}-day season):")
+        print(f"{'daily mean':>12}{'saves/day':>12}{'days needed':>14}{'of summer':>12}")
+        for r in cv["rows"]:
+            if r["days_needed"] is None:
+                print(f"{r['temp_f']:>11}F{'-':>12}{'never':>14}{'-':>12}")
+            else:
+                print(f"{r['temp_f']:>11}F{r['saves_per_day']:>10.2f}kWh"
+                      f"{r['days_needed']:>14}{r['pct_of_summer']:>11}%")
+        print(f"  hottest daily mean on record: {cv['hottest_on_record']:.1f}F")
+
     cl = c["climate"]
     if cl:
         print(f"  In {', '.join(cl['seasons'])} local summers that happened "
