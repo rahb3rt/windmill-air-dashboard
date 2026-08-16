@@ -184,6 +184,20 @@ SQLite (`windmill.db`), three tables:
 - `exports` — which Blynk exports have already been fetched, so a period already
   pulled is never re-fetched.
 
+### Importing a manual export
+
+```bash
+python3 import_csv.py --unit Kitchen ~/Downloads/widget_*.csv
+```
+
+The dashboard's own widget download beats the HTTP API on every axis: no quota,
+and the device's native ~10 second cadence rather than hourly means. When a
+unit's quota is exhausted, downloading by hand and importing is the fastest fix.
+
+Values are stored as readings and the hourly rollup is rebuilt from them, exactly
+as locally sampled data is — so an import is a real measurement and clears any
+estimate covering those hours.
+
 ### The export rate limit
 
 Blynk allows **72 report exports per device per day**. Exceed it and you get
@@ -230,10 +244,12 @@ is `v11`, which is `1` on exactly three units and constant — a per-unit settin
 most likely one of these three. Toggling one setting in the Windmill app and
 re-reading would bind it immediately.
 
-**`v16` is "Energy"**, but the accumulation window is unclear: it does not match
-energy-so-far-this-hour, and it has been observed *decreasing*, so it is not
-cumulative since install. This project does not use it — kWh is integrated from
-`v15` instead.
+**`v16` is "Energy" — kWh consumed in the trailing 15 minutes.** It reports every
+15 minutes and is per-interval, not cumulative, which is why it is sometimes seen
+*decreasing*. Confirmed by integrating `v15` over the preceding 15 minutes and
+comparing: the ratio holds at 0.98–1.01 across every window checked. This project
+still integrates `v15` itself, since that works at any resolution and does not
+depend on the unit's reporting cadence.
 
 Still unidentified: `v5`, `v6`, `v8`, `v11`, `v12`, `v17`, `v100`, `v110`–`v113`,
 `v116`, `v117`. `v100` and `v110`–`v113` sit at `3` on most units with `v113` at
