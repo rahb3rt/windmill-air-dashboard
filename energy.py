@@ -14,6 +14,7 @@ year-wide query touches a few thousand rows instead of millions.
 import time
 import calendar
 
+import analysis
 import blynk
 import config
 import store
@@ -98,38 +99,55 @@ def summary(con, t0, t1, label="", live=None):
 
     totals_by_unit = {} if use_raw else store.rollup_range(con, t0, t1)
     units, total_kwh, total_w = [], 0.0, 0.0
-    recent = time.time() - 180
+    activated = store.activations(con)
+    now = time.time()
 
     for device in config.DEVICES:
         name = device["name"]
         pins = (live or {}).get(name)
         state = blynk.describe(pins)
 
+        # A unit only owes us data for the part of the range it existed for, so
+        # a recently installed unit is not mistaken for one with missing history.
+        start = max(t0, activated.get(name, t0))
+        expected = max(0.0, (min(t1, now) - start) / 3600)
+        covered = store.covered_hours(con, name, start, t1)
+        ratio = (covered / expected) if expected >= 1 else 1.0
+        complete = ratio >= 0.5
+
         if use_raw:
             pts = store.series(con, name, config.POWER_PIN, t0, t1)
             kwh, cooling, _ = integrate_points(pts, t_end=min(t1, time.time()))
             peak = max([v for _, v in pts], default=0)
+            est_kwh = 0.0
         else:
             row = totals_by_unit.get(name, {})
             kwh = (row.get("wh") or 0) / 1000
             cooling = row.get("cooling_s") or 0
             peak = row.get("w_max") or 0
+            est_kwh = (row.get("est_wh") or 0) / 1000
 
-        total_kwh += kwh
         total_w += state["watts"]
+        if complete:
+            total_kwh += kwh
         units.append({
             **state,
             "name": name,
             "watts": round(state["watts"]),
-            "kwh": round(kwh, 3),
-            "cost": round(kwh * r, 2),
-            "cooling_min": round(cooling / 60),
+            "kwh": round(kwh, 3) if complete else None,
+            "cost": round(kwh * r, 2) if complete else None,
+            "cooling_min": round(cooling / 60) if complete else None,
             "peak_w": round(peak),
+            "complete": complete,
+            "est_kwh": round(est_kwh, 3),
+            "coverage": round(ratio, 3),
+            "missing_h": round(max(0.0, expected - covered)),
             "pins": pins or {},
         })
 
     for u in units:
-        u["share"] = round(100 * u["kwh"] / total_kwh, 1) if total_kwh else 0.0
+        u["share"] = (round(100 * u["kwh"] / total_kwh, 1)
+                      if (total_kwh and u["complete"]) else None)
 
     # ---- chart series
     bucket = bucket_for(span)
@@ -169,6 +187,32 @@ def summary(con, t0, t1, label="", live=None):
             },
         }
 
+    # ---- temperature series, bucketed onto the same axis as the energy chart
+    tb = bucket or 3600
+    analysis.ensure_hourly_weather(con, t0, t1, timeout=8)
+    outdoor_raw = analysis.outdoor_series(con, t0, t1)
+    indoor_raw = {}
+    for row in con.execute(
+            "SELECT hour, AVG(temp_f) t FROM hourly WHERE hour>=? AND hour<? "
+            "AND temp_f IS NOT NULL GROUP BY hour", (store.hour_of(t0), t1)):
+        indoor_raw[row["hour"]] = row["t"]
+
+    def bucketize(raw):
+        acc = {}
+        for h, v in raw.items():
+            b = int(h) // tb * tb
+            acc.setdefault(b, []).append(v)
+        return {b: sum(v) / len(v) for b, v in acc.items()}
+
+    ind, out = bucketize(indoor_raw), bucketize(outdoor_raw)
+    tstamps = sorted(set(ind) | set(out))
+    temps = {
+        "t": tstamps,
+        "indoor": [round(ind[b], 1) if b in ind else None for b in tstamps],
+        "outdoor": [round(out[b], 1) if b in out else None for b in tstamps],
+        "bucket": tb,
+    }
+
     lo, hi = store.bounds(con)
     hourly_lo = con.execute("SELECT MIN(hour) h FROM hourly").fetchone()["h"]
     coverage_start = min([x for x in (lo, hourly_lo) if x], default=None)
@@ -182,12 +226,17 @@ def summary(con, t0, t1, label="", live=None):
             "watts": round(total_w),
             "kwh": round(total_kwh, 3),
             "cost": round(total_kwh * r, 2),
-            "cooling_min": sum(u["cooling_min"] for u in units),
+            "cooling_min": sum(u["cooling_min"] or 0 for u in units),
             "online": sum(1 for u in units if u["online"]),
             "count": len(units),
             "daily_avg_kwh": round(total_kwh / max(1, span / 86400), 3),
+            "incomplete": [u["name"] for u in units if not u["complete"]],
+            "est_kwh": round(sum(u["est_kwh"] for u in units if u["complete"]), 3),
+            "estimated_units": [u["name"] for u in units
+                                if u["complete"] and u["est_kwh"] > 0.01],
         },
         "series": series,
+        "temps": temps,
         "coverage": {"start": coverage_start, "end": hi},
         "resolution": "raw samples" if use_raw else "hourly rollup",
     }

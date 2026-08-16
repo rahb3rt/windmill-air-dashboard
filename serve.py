@@ -59,6 +59,42 @@ def sampler():
         time.sleep(SAMPLE_INTERVAL)
 
 
+def maintainer():
+    """Refresh device metadata, and keep retrying backfill for units with gaps.
+
+    A unit can be missing history simply because its export quota was exhausted
+    when we asked. That clears on its own, so retry rather than leaving a hole
+    (or, worse, inventing numbers to fill it).
+    """
+    while True:
+        try:
+            con = store.connect()
+            for device in config.DEVICES:
+                info = blynk.device_info(device)
+                if info and info["activated_at"]:
+                    store.save_device(con, device["name"], info["device_id"],
+                                      info["activated_at"])
+
+            t0, t1, _ = energy.resolve_range("30d")
+            activated = store.activations(con)
+            for device in config.DEVICES:
+                name = device["name"]
+                start = max(t0, activated.get(name, t0))
+                expected = max(0.0, (min(t1, time.time()) - start) / 3600)
+                if expected < 1:
+                    continue
+                if store.covered_hours(con, name, start, t1) / expected >= 0.5:
+                    continue
+                with _lock:
+                    r = backfill.fetch_power(con, device, force=True)
+                print(f"backfill retry {name}: {r['status']} "
+                      f"{r.get('detail') or str(r['rows']) + ' hours'}")
+            con.close()
+        except Exception as exc:
+            print(f"maintainer failed: {exc}")
+        time.sleep(3600)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass

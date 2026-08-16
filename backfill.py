@@ -40,6 +40,7 @@ import config
 import store
 
 POWER_DSID = 7
+TEMP_DSID = 2          # "Room Temperature"
 DAILY_QUOTA = 72
 REFRESH_S = 6 * 3600      # don't re-pull the same period more often than this
 
@@ -116,10 +117,49 @@ def fetch_power(con, device, period="month", gran="HOURLY", force=False):
     return {"unit": unit, "status": "ok", "rows": written, "points": len(points)}
 
 
+def fetch_temp(con, device, period="month", gran="HOURLY", force=False):
+    """Pull one unit's Room Temperature history into the hourly rollup."""
+    unit = device["name"]
+    row = con.execute(
+        "SELECT fetched_at FROM exports WHERE unit=? AND dsid=? AND period=?",
+        (unit, TEMP_DSID, period)).fetchone()
+    if row and not force and time.time() - row["fetched_at"] < REFRESH_S:
+        return {"unit": unit, "status": "cached", "rows": 0}
+    if _quota_used(con, unit) >= DAILY_QUOTA:
+        return {"unit": unit, "status": "quota", "rows": 0}
+    try:
+        name, points = _download(device["token"], TEMP_DSID, period, gran)
+    except Exception as exc:
+        return {"unit": unit, "status": "error", "rows": 0, "detail": str(exc)}
+    written = 0
+    for ts, temp in points:
+        hour = store.hour_of(ts)
+        # only fill hours that exist and lack a temperature; never overwrite
+        # a value derived from local sampling
+        cur = con.execute("SELECT temp_f, samples FROM hourly WHERE unit=? AND hour=?",
+                          (unit, hour)).fetchone()
+        if cur is None:
+            continue
+        if cur["temp_f"] is not None and cur["samples"]:
+            continue
+        con.execute("UPDATE hourly SET temp_f=? WHERE unit=? AND hour=?",
+                    (temp, unit, hour))
+        written += 1
+    con.execute(
+        "INSERT OR REPLACE INTO exports(unit,dsid,period,name,rows,fetched_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (unit, TEMP_DSID, period, name, len(points), int(time.time())))
+    con.commit()
+    return {"unit": unit, "status": "ok", "rows": written}
+
+
 def run(con, period="month", force=False):
     results = []
     for device in config.DEVICES:
         results.append(fetch_power(con, device, period=period, force=force))
+        time.sleep(1.5)
+        t = fetch_temp(con, device, period=period, force=force)
+        results.append({**t, "kind": "temp"})
         time.sleep(1.5)                  # be gentle with the export endpoint
     return results
 

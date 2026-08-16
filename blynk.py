@@ -50,6 +50,21 @@ def read_all():
         return {d["name"]: p for d, p in zip(config.DEVICES, pins)}
 
 
+def device_info(device, timeout=20):
+    """Device metadata, including when the unit was first activated.
+
+    Not a report export, so this is not subject to the 72/day export quota.
+    """
+    url = f"https://{config.HOST}/external/api/device?token={device['token']}"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            j = json.load(r)
+        return {"device_id": j.get("id"),
+                "activated_at": int((j.get("activatedAt") or 0) / 1000) or None}
+    except Exception:
+        return None
+
+
 def describe(pins):
     """Human-readable state from a raw pin dict."""
     if not pins:

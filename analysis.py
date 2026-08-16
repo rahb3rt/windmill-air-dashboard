@@ -72,6 +72,44 @@ def weather_map(con, start=None, end=None):
     return {r["day"]: (r["mean_f"], r["max_f"]) for r in con.execute(sql, args)}
 
 
+def ensure_hourly_weather(con, t0, t1, timeout=45):
+    """Hourly outdoor temperature for [t0,t1], cached permanently."""
+    start = time.strftime("%Y-%m-%d", time.localtime(t0))
+    end = time.strftime("%Y-%m-%d", time.localtime(t1))
+    want = int((t1 - t0) / 3600)
+    have = con.execute("SELECT COUNT(*) n FROM weather_hourly WHERE hour>=? AND hour<=?",
+                       (int(t0), int(t1))).fetchone()["n"]
+    if have >= want - 24:
+        return True
+    q = urllib.parse.urlencode({
+        "latitude": config.LAT, "longitude": config.LON,
+        "start_date": start, "end_date": end,
+        "hourly": "temperature_2m", "temperature_unit": "fahrenheit",
+        "timezone": "auto",
+    })
+    try:
+        with urllib.request.urlopen(
+                f"https://archive-api.open-meteo.com/v1/archive?{q}", timeout=timeout) as r:
+            d = json.load(r)["hourly"]
+    except Exception:
+        return False
+    rows = []
+    for iso, temp in zip(d["time"], d["temperature_2m"]):
+        if temp is None:
+            continue
+        ts = int(time.mktime(time.strptime(iso, "%Y-%m-%dT%H:%M")))
+        rows.append((ts, temp))
+    con.executemany("INSERT OR REPLACE INTO weather_hourly(hour,temp_f) VALUES (?,?)", rows)
+    con.commit()
+    return True
+
+
+def outdoor_series(con, t0, t1):
+    return {r["hour"]: r["temp_f"] for r in con.execute(
+        "SELECT hour, temp_f FROM weather_hourly WHERE hour>=? AND hour<=?",
+        (int(t0), int(t1)))}
+
+
 # ---------------------------------------------------------------- energy
 
 def daily_totals(con):

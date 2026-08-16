@@ -46,6 +46,33 @@ Set your electricity rate in the toolbar (`$/kWh`). It's stored in the database
 and applied to every range retroactively. `WINDMILL_RATE_PER_KWH` in `.env` is
 only the initial default.
 
+## Temperature
+
+The page charts outdoor temperature against the average indoor reading across
+units, on the same time axis as the energy chart, and reports the correlation
+between outdoor temperature and energy use for the selected range. Indoor history
+is backfilled from the Room Temperature datastream; outdoor comes from Open-Meteo
+hourly archive, cached permanently in SQLite.
+
+## Reconstructing hours a unit ran without reporting
+
+```bash
+python3 gapfill.py "Third Floor Right" --reference "Third Floor Left" --dry-run
+```
+
+A unit can drop off Windmill's cloud for days while still cooling. Those hours are
+missing energy, not zero. `gapfill.py` recovers them using the unit's **own**
+cumulative Filter Runtime counter, which keeps counting while offline: the
+difference across the gap is exactly how many hours it ran, and multiplying by
+that unit's measured Wh-per-running-hour gives its energy. A reference unit
+supplies only the *shape* used to spread the total across the gap — the magnitude
+never depends on it.
+
+Every reconstructed hour is stored with `estimated = 1` and reported separately in
+the UI, so it can never be mistaken for a measurement. If the runtime counter is
+unavailable it refuses rather than copying a sibling outright, which would invent
+a magnitude rather than just a shape.
+
 ## Comparing before and after a change
 
 Set `WINDMILL_CHANGE_DATE` and `WINDMILL_NEW_UNITS` in `.env` and the dashboard
@@ -111,38 +138,50 @@ press — it's a no-op when everything is already cached.
 
 ## Datastream map
 
-`dataStreamId` in the export API is **not** the virtual pin number. These were
-established by exporting each stream and correlating against live pin reads:
+`dataStreamId` in the export API is **not** the virtual pin number — id 15 is
+"Protocol Failure Count", which is pin `v31`. The names below are Windmill's own,
+read from the CSV export headers; each was bound to a pin by correlating exported
+values against live reads.
 
-| Export id | Name | Pin |
+| Export id | Windmill's name | Pin |
 |---|---|---|
+| 1 | Power Switch | `v0` |
 | 2 | Room Temperature | `v1` |
 | 3 | Set Temperature | `v2` |
-| 7 | **Power** (watts) | `v15` |
-| 8 | Night Mode | — |
+| 7 | Power (watts) | `v15` |
 | 9 | Filter Runtime (hours) | `v7` |
-| 11 | WiFi RSSI | `v30` |
-| 12 | Filter Change Indicator | — |
+| 14 | WiFi RSSI | `v30` |
 | 15 | Protocol Failure Count | `v31` |
+| 16 | Mode — `0` fan, `1` cool, `2` eco | `v3` |
+| 17 | Fan Speed — `0` auto, `1` low, `2` med, `3` high | `v4` |
+| 18 | Energy | `v16` |
+| 8 | Night Mode | unbound |
+| 11 | Beeping Mode | unbound |
+| 12 | Filter Change Indicator | unbound |
 
-Control pins, confirmed against the community Home Assistant integration
-([bzellman/WindmillAC](https://github.com/bzellman/WindmillAC)):
+IDs stop at 18; nothing above it exists. Only these report history — the rest of
+the pins are live-only and shown raw in the **All metrics** table.
 
-| Pin | Meaning |
-|---|---|
-| `v0` | Power — `0` off, `1` on |
-| `v1` | Current room temperature (°F) |
-| `v2` | Target temperature (°F) |
-| `v3` | Mode — `0` fan, `1` cool, `2` eco |
-| `v4` | Fan speed — `0` auto, `1` low, `2` medium, `3` high |
+`v15` = Power was confirmed by pulling that export at minute granularity and
+matching it against logged pin values. `v0`–`v4` independently agree with the
+community Home Assistant integration
+([bzellman/WindmillAC](https://github.com/bzellman/WindmillAC)).
 
-`v15` = watts was confirmed by pulling the "Power" export at minute granularity
-and matching it against logged pin values. Only these five datastreams report
-history; the rest are live-only and shown raw in the **All metrics** table.
+**Three names remain unbound.** Night Mode, Beeping Mode and Filter Change
+Indicator are all `0` on every unit right now, so they cannot be told apart from
+each other or from `v5`, `v6`, `v8`, `v12`, `v17`, `v116`, `v117`. The exception
+is `v11`, which is `1` on exactly three units and constant — a per-unit setting,
+most likely one of these three. Toggling one setting in the Windmill app and
+re-reading would bind it immediately.
 
-Still unidentified: `v5`, `v6`, `v8`, `v11`, `v12`, `v16`, `v17`, `v100`,
-`v110`–`v113`, `v116`, `v117`. Note `v16` has been observed *decreasing*, so it is
-not a cumulative energy counter.
+**`v16` is "Energy"**, but the accumulation window is unclear: it does not match
+energy-so-far-this-hour, and it has been observed *decreasing*, so it is not
+cumulative since install. This project does not use it — kWh is integrated from
+`v15` instead.
+
+Still unidentified: `v5`, `v6`, `v8`, `v11`, `v12`, `v17`, `v100`, `v110`–`v113`,
+`v116`, `v117`. `v100` and `v110`–`v113` sit at `3` on most units with `v113` at
+`0` on two, which looks like a group of per-unit settings rather than telemetry.
 
 ## Security
 

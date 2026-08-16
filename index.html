@@ -162,6 +162,17 @@
     <div class="cards" id="cards"></div>
   </section>
 
+  <section id="tempSection">
+    <h2 id="tempTitle">Temperature</h2>
+    <p class="sub" id="tempSub"></p>
+    <div id="tempChart"></div>
+    <div class="legend">
+      <span><i style="background:var(--s2)"></i>Outdoor</span>
+      <span><i style="background:var(--s1)"></i>Indoor (average of units)</span>
+      <span><i style="background:var(--text-muted);opacity:.5"></i>Target</span>
+    </div>
+  </section>
+
   <section id="compareSection" hidden>
     <h2 id="compareTitle">Before vs after</h2>
     <p class="sub" id="compareSub"></p>
@@ -184,10 +195,13 @@ const SERIES = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7'];
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const colorOf = i => css(SERIES[i % SERIES.length]);
 
+// Names are Windmill's own, read from the CSV export headers; the pin each one
+// binds to was established by correlating exported values against live reads.
 const PIN_LABELS = {
-  v0:'Power state', v1:'Room temperature (°F)', v2:'Target temperature (°F)',
-  v3:'Mode', v4:'Fan speed', v7:'Filter runtime (h)', v15:'Power draw (W)',
-  v30:'WiFi RSSI (dBm)', v31:'Protocol failure count'
+  v0:'Power Switch', v1:'Room Temperature (°F)', v2:'Set Temperature (°F)',
+  v3:'Mode', v4:'Fan Speed', v7:'Filter Runtime (h)', v15:'Power (W)',
+  v16:'Energy (kWh, window unclear)', v30:'WiFi RSSI (dBm)',
+  v31:'Protocol Failure Count'
 };
 const PIN_FMT = {
   v0: v => v==1 ? 'On' : 'Off',
@@ -266,14 +280,23 @@ function renderStats(d) {
 /* ---------------- bars: energy by unit ---------------- */
 function renderBars(d) {
   const el = document.getElementById('barChart');
-  const units = [...d.units].sort((a,b) => b.kwh - a.kwh);
-  const max = Math.max(...units.map(u => u.kwh), .001);
+  const units = [...d.units].sort((a,b) => (b.kwh ?? -1) - (a.kwh ?? -1));
+  const max = Math.max(...units.map(u => u.kwh ?? 0), .001);
   const idx = new Map(d.units.map((u,i) => [u.name,i]));
   const W = 900, rowH = 34, padL = 138, padR = 150, plot = W - padL - padR;
   const H = units.length * rowH + 8;
 
   const bars = units.map((u,i) => {
-    const y = i*rowH + 6, w = Math.max(2, (u.kwh/max)*plot), c = colorOf(idx.get(u.name));
+    const y = i*rowH + 6, c = colorOf(idx.get(u.name));
+    if (!u.complete) return `<g class="bar" data-name="${u.name}">
+      <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
+      <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end"
+        style="opacity:.5">${u.name}</text>
+      <rect x="${padL}" y="${y}" width="${plot}" height="18" rx="4" fill="none"
+        stroke="${c}" stroke-width="1" stroke-dasharray="3 3" opacity=".45"></rect>
+      <text class="lbl2" x="${padL+10}" y="${y+13}">no data — ${fmt(u.missing_h)}h missing</text>
+    </g>`;
+    const w = Math.max(2, (u.kwh/max)*plot);
     return `<g class="bar" data-name="${u.name}">
       <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
       <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end">${u.name}</text>
@@ -289,7 +312,9 @@ function renderBars(d) {
   el.querySelectorAll('.bar').forEach(g => {
     const u = units.find(x => x.name === g.dataset.name);
     g.addEventListener('mousemove', e => showTip(e, `<b>${u.name}</b>
-      <div class="tr"><span>Energy</span><span>${fmt(u.kwh,3)} kWh</span></div>
+      ${u.complete ? '' : `<div class="tr"><span>History</span><span>${fmt(u.missing_h)}h missing</span></div>`}
+      <div class="tr"><span>Energy</span><span>${u.complete?fmt(u.kwh,3)+' kWh':'no data'}</span></div>
+      ${u.est_kwh>0.01?`<div class="tr"><span>of which estimated</span><span>${fmt(u.est_kwh,2)} kWh</span></div>`:''}
       <div class="tr"><span>Cost</span><span>$${fmt(u.cost,2)}</span></div>
       <div class="tr"><span>Share</span><span>${fmt(u.share,1)}%</span></div>
       <div class="tr"><span>Compressor</span><span>${dur(u.cooling_min)}</span></div>
@@ -298,8 +323,14 @@ function renderBars(d) {
   });
 
   document.getElementById('energyTitle').textContent = `Energy by unit — ${d.range.label}`;
+  const inc = d.totals.incomplete || [];
   document.getElementById('energySub').textContent =
-    `${fmt(d.totals.kwh,2)} kWh total, $${fmt(d.totals.cost,2)}. Ranked highest first.`;
+    `${fmt(d.totals.kwh,2)} kWh total, $${fmt(d.totals.cost,2)}. Ranked highest first.`
+    + (inc.length ? `  ${inc.join(', ')} ${inc.length>1?'have':'has'} no history for this `
+      + `range and ${inc.length>1?'are':'is'} excluded from the total.` : '')
+    + (d.totals.est_kwh > 0.01
+        ? `  ${fmt(d.totals.est_kwh,1)} kWh of this is reconstructed for hours `
+        + `${(d.totals.estimated_units||[]).join(', ')} ran without reporting.` : '');
 }
 
 /* ---------------- trend: stacked kWh bars, or watt lines ---------------- */
@@ -458,10 +489,10 @@ function renderCards(d) {
         <span class="tgt">set to ${u.target==null?'–':fmt(u.target)}°</span></div>
       <div class="rows">
         <div class="row"><span>Drawing now</span><span>${fmt(u.watts)} W</span></div>
-        <div class="row"><span>Energy</span><span>${fmt(u.kwh,2)} kWh</span></div>
-        <div class="row"><span>Cost</span><span>$${fmt(u.cost,2)}</span></div>
-        <div class="row"><span>Compressor</span><span>${dur(u.cooling_min)}</span></div>
-        <div class="row"><span>Share</span><span>${fmt(u.share,1)}%</span></div>
+        <div class="row"><span>Energy</span><span>${u.complete?fmt(u.kwh,2)+' kWh':'no data'}</span></div>
+        <div class="row"><span>Cost</span><span>${u.complete?'$'+fmt(u.cost,2):'–'}</span></div>
+        <div class="row"><span>Compressor</span><span>${u.complete?dur(u.cooling_min):'–'}</span></div>
+        <div class="row"><span>Share</span><span>${u.complete?fmt(u.share,1)+'%':'–'}</span></div>
       </div></div>`;
   }).join('');
 }
@@ -471,11 +502,14 @@ function renderTable(d) {
   const pins = [...new Set(units.flatMap(u => Object.keys(u.pins)))]
     .sort((a,b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
   const derived = [
-    ['Energy (kWh)', u => fmt(u.kwh,3), fmt(d.totals.kwh,3)],
-    ['Cost', u => '$'+fmt(u.cost,2), '$'+fmt(d.totals.cost,2)],
-    ['Compressor time', u => dur(u.cooling_min), dur(d.totals.cooling_min)],
+    ['Energy (kWh)', u => u.complete?fmt(u.kwh,3):'no data', fmt(d.totals.kwh,3)],
+    ['Cost', u => u.complete?'$'+fmt(u.cost,2):'–', '$'+fmt(d.totals.cost,2)],
+    ['Compressor time', u => u.complete?dur(u.cooling_min):'–', dur(d.totals.cooling_min)],
     ['Peak draw (W)', u => fmt(u.peak_w), '–'],
-    ['Share of total', u => fmt(u.share,1)+'%', '100%'],
+    ['Share of total', u => u.complete?fmt(u.share,1)+'%':'–', '100%'],
+    ['History coverage', u => fmt(u.coverage*100,0)+'%', '–'],
+    ['of which reconstructed', u => u.est_kwh>0.01?fmt(u.est_kwh,2)+' kWh':'–',
+      d.totals.est_kwh>0.01?fmt(d.totals.est_kwh,2)+' kWh':'–'],
   ];
   document.getElementById('table').innerHTML = `<table>
     <thead><tr><th>Metric</th>${units.map(u=>`<th>${u.name}</th>`).join('')}<th>Total</th></tr></thead>
@@ -497,6 +531,103 @@ function renderTable(d) {
         }).join('')}<td class="unmapped">–</td></tr>`;
       }).join('')}
     </tbody></table>`;
+}
+
+/* ---------------- temperature vs energy ---------------- */
+function renderTemps(d) {
+  const el = document.getElementById('tempChart');
+  const tp = d.temps, sec = document.getElementById('tempSection');
+  if (!tp || tp.t.length < 2) {
+    sec.hidden = true; return;
+  }
+  sec.hidden = false;
+  const t = tp.t;
+  const vals = [...tp.indoor, ...tp.outdoor].filter(v => v != null);
+  const lo = Math.floor(Math.min(...vals)/5)*5, hi = Math.ceil(Math.max(...vals)/5)*5;
+  const W = 900, H = 240, padL = 46, padR = 12, padT = 10, padB = 28;
+  const X = i => padL + (i/(t.length-1))*(W-padL-padR);
+  const Y = v => padT + (1 - (v-lo)/(hi-lo || 1))*(H-padT-padB);
+
+  const ticks = [0,.25,.5,.75,1].map(f => Math.round(lo + (hi-lo)*f));
+  const grid = ticks.map(v => `
+    <line class="gridline" x1="${padL}" x2="${W-padR}" y1="${Y(v)}" y2="${Y(v)}"></line>
+    <text class="tick" x="${padL-8}" y="${Y(v)+4}" text-anchor="end">${v}°</text>`).join('');
+
+  const line = (arr, color, width) => {
+    let s='', pen=false;
+    arr.forEach((v,i) => {
+      if (v==null) { pen=false; return; }
+      s += (pen?'L':'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; pen=true;
+    });
+    return `<path d="${s}" fill="none" stroke="${color}" stroke-width="${width}"
+      stroke-linejoin="round" stroke-linecap="round"></path>`;
+  };
+
+  const n = Math.min(7, t.length);
+  const xl = Array.from({length:n},(_,k)=>Math.round(k*(t.length-1)/(n-1)))
+    .map(i => `<text class="tick" x="${X(i)}" y="${H-8}" text-anchor="middle">${
+      tp.bucket>=86400 ? dayLbl(t[i]) : dayLbl(t[i])+' '+clock(t[i])}</text>`).join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Indoor and outdoor temperature over time">
+    ${grid}${xl}
+    <line class="baseline" x1="${padL}" x2="${W-padR}" y1="${H-padB}" y2="${H-padB}"></line>
+    ${line(tp.outdoor, css('--s2'), 2)}
+    ${line(tp.indoor, css('--s1'), 2)}
+    <g id="tcross" style="display:none">
+      <line class="baseline" y1="${padT}" y2="${H-padB}" stroke-dasharray="3 3"></line>
+      <circle r="4" fill="${css('--s2')}" stroke="var(--surface-1)" stroke-width="2"></circle>
+      <circle r="4" fill="${css('--s1')}" stroke="var(--surface-1)" stroke-width="2"></circle>
+    </g>
+    <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
+      fill="transparent" id="thit"></rect>
+    <text class="tick" x="${padL-8}" y="${padT-2}" text-anchor="end">°F</text></svg>`;
+
+  const svg = el.querySelector('svg'), cr = el.querySelector('#tcross');
+  const vl = cr.querySelector('line'), dots=[...cr.querySelectorAll('circle')];
+  const energyAt = new Map(d.series.t.map((ts,i) =>
+    [ts, Object.keys(d.series.units).reduce((a,n2)=>a+(d.series.units[n2][i]||0),0)]));
+  el.querySelector('#thit').addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const sx = (e.clientX-r.left)/r.width*W;
+    const i = Math.max(0, Math.min(t.length-1,
+      Math.round((sx-padL)/(W-padL-padR)*(t.length-1))));
+    cr.style.display=''; vl.setAttribute('x1',X(i)); vl.setAttribute('x2',X(i));
+    [tp.outdoor[i], tp.indoor[i]].forEach((v,k) => {
+      dots[k].style.display = v==null?'none':'';
+      if (v!=null){ dots[k].setAttribute('cx',X(i)); dots[k].setAttribute('cy',Y(v)); }
+    });
+    const kwh = energyAt.get(t[i]);
+    const spread = (tp.outdoor[i]!=null && tp.indoor[i]!=null)
+      ? tp.outdoor[i]-tp.indoor[i] : null;
+    showTip(e, `<b>${dayLbl(t[i])}${tp.bucket<86400?' '+clock(t[i]):''}</b>
+      <div class="tr"><span>Outdoor</span><span>${fmt(tp.outdoor[i],1)}°F</span></div>
+      <div class="tr"><span>Indoor</span><span>${fmt(tp.indoor[i],1)}°F</span></div>
+      ${spread!=null?`<div class="tr"><span>Difference</span><span>${fmt(spread,1)}°F</span></div>`:''}
+      ${kwh!=null?`<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);
+        padding-top:5px"><span>Energy</span><span>${fmt(kwh,2)} kWh</span></div>`:''}`);
+  });
+  el.querySelector('#thit').addEventListener('mouseleave', () => {
+    cr.style.display='none'; hideTip();
+  });
+
+  // correlation between outdoor temperature and energy, same buckets
+  const pairs = t.map((ts,i) => [tp.outdoor[i], energyAt.get(ts)])
+                 .filter(([a,b]) => a!=null && b!=null);
+  let corr = null;
+  if (pairs.length > 4) {
+    const n2=pairs.length, mx=pairs.reduce((a,p)=>a+p[0],0)/n2, my=pairs.reduce((a,p)=>a+p[1],0)/n2;
+    const cov=pairs.reduce((a,p)=>a+(p[0]-mx)*(p[1]-my),0)/n2;
+    const sx=Math.sqrt(pairs.reduce((a,p)=>a+(p[0]-mx)**2,0)/n2);
+    const sy=Math.sqrt(pairs.reduce((a,p)=>a+(p[1]-my)**2,0)/n2);
+    if (sx>0 && sy>0) corr = cov/(sx*sy);
+  }
+  const per = tp.bucket>=604800?'week':tp.bucket>=86400?'day':tp.bucket>=21600?'6 hours':'hour';
+  document.getElementById('tempTitle').textContent = `Temperature — ${d.range.label}`;
+  document.getElementById('tempSub').textContent =
+    `Outdoor vs the average indoor reading across units, per ${per}, on the same time axis `
+  + `as the energy chart above.`
+  + (corr!=null ? `  Outdoor temperature and energy use correlate at r = ${fmt(corr,2)}.` : '');
 }
 
 /* ---------------- before vs after ---------------- */
@@ -586,7 +717,8 @@ async function load() {
       document.getElementById('from').value = isoDay(d.range.from);
       document.getElementById('to').value = isoDay(d.range.to);
     }
-    renderStats(d); renderBars(d); renderTrend(d); renderCards(d); renderTable(d);
+    renderStats(d); renderBars(d); renderTrend(d); renderTemps(d);
+    renderCards(d); renderTable(d);
     fetch('/api/comparison').then(r => r.json()).then(renderCompare).catch(() => {});
     document.getElementById('meta').innerHTML =
       `<span class="dot"></span> live · updated ${clock(d.updated)}`;

@@ -45,8 +45,16 @@ CREATE TABLE IF NOT EXISTS exports (
   PRIMARY KEY (unit, dsid, period)
 );
 
+CREATE TABLE IF NOT EXISTS devices (
+  unit TEXT PRIMARY KEY, device_id INTEGER, activated_at INTEGER, seen_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS weather (
   day TEXT PRIMARY KEY, mean_f REAL, max_f REAL
+);
+
+CREATE TABLE IF NOT EXISTS weather_hourly (
+  hour INTEGER PRIMARY KEY, temp_f REAL
 );
 
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
@@ -59,6 +67,14 @@ def connect():
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA synchronous=NORMAL")
     con.executescript(SCHEMA)
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(hourly)")}
+    if "estimated" not in cols:
+        # 0 = measured, 1 = reconstructed by gapfill.py
+        con.execute("ALTER TABLE hourly ADD COLUMN estimated INTEGER DEFAULT 0")
+        con.commit()
+    if "temp_f" not in cols:
+        con.execute("ALTER TABLE hourly ADD COLUMN temp_f REAL")
+        con.commit()
     return con
 
 
@@ -147,6 +163,8 @@ def rebuild_hours(con, hours, power_pin, compressor_w, max_gap):
             on_pts = dict(series(con, unit, "v0", h, h + 3600))
             if not pts:
                 continue
+            temps = [v for _, v in series(con, unit, "v1", h, h + 3600)]
+            temp_f = (sum(temps) / len(temps)) if temps else None
             wh = cooling = on_s = 0.0
             peak = 0.0
             prev_t = prev_v = None
@@ -176,8 +194,9 @@ def rebuild_hours(con, hours, power_pin, compressor_w, max_gap):
             span = max(1.0, min(3600, (pts[-1][0] - pts[0][0]) or 3600))
             con.execute(
                 "INSERT OR REPLACE INTO hourly"
-                "(unit,hour,wh,cooling_s,on_s,w_avg,w_max,samples) VALUES (?,?,?,?,?,?,?,?)",
-                (unit, h, wh, cooling, on_s, wh * 3600 / span, peak, len(pts)))
+                "(unit,hour,wh,cooling_s,on_s,w_avg,w_max,samples,temp_f) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (unit, h, wh, cooling, on_s, wh * 3600 / span, peak, len(pts), temp_f))
     con.commit()
 
 
@@ -185,7 +204,8 @@ def rollup_range(con, t0, t1):
     """Per-unit totals over [t0,t1) straight from the hourly table."""
     rows = con.execute(
         "SELECT unit, SUM(wh) wh, SUM(cooling_s) cooling_s, SUM(on_s) on_s, "
-        "MAX(w_max) w_max FROM hourly WHERE hour>=? AND hour<? GROUP BY unit",
+        "MAX(w_max) w_max, SUM(CASE WHEN estimated THEN wh ELSE 0 END) est_wh "
+        "FROM hourly WHERE hour>=? AND hour<? GROUP BY unit",
         (hour_of(t0), t1)).fetchall()
     return {r["unit"]: dict(r) for r in rows}
 
@@ -206,6 +226,24 @@ def dirty_hours(con, since):
     rows = con.execute(
         "SELECT DISTINCT ts/3600*3600 h FROM readings WHERE ts>=?", (since,)).fetchall()
     return [int(r["h"]) for r in rows]
+
+
+def save_device(con, unit, device_id, activated_at):
+    con.execute("INSERT OR REPLACE INTO devices(unit,device_id,activated_at,seen_at) "
+                "VALUES (?,?,?,?)", (unit, device_id, activated_at, int(time.time())))
+    con.commit()
+
+
+def activations(con):
+    """{unit: activation unix ts}. Empty until device info has been fetched."""
+    return {r["unit"]: r["activated_at"] for r in
+            con.execute("SELECT unit, activated_at FROM devices WHERE activated_at")}
+
+
+def covered_hours(con, unit, t0, t1):
+    r = con.execute("SELECT COUNT(*) n FROM hourly WHERE unit=? AND hour>=? AND hour<?",
+                    (unit, hour_of(t0), t1)).fetchone()
+    return r["n"] if r else 0
 
 
 def set_meta(con, k, v):
