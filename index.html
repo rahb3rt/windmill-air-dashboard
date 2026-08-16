@@ -176,6 +176,7 @@
 
   <section id="compareSection" hidden>
     <h2 id="compareTitle">Before vs after</h2>
+    <div class="stats" id="paybackStats" style="margin-bottom:16px"></div>
     <p class="sub" id="compareSub"></p>
     <div class="scroll" id="compareTable"></div>
     <p class="note" id="compareNote"></p>
@@ -740,6 +741,32 @@ function renderCompare(c) {
         <td colspan="2" style="padding-top:14px"><strong>${be}</strong></td></tr>
     </tbody></table>`;
 
+  // headline: how many hot days a season would need for this to pay for itself
+  const pb = c.payback;
+  if (pb) {
+    const tiles = [];
+    if (pb.possible) {
+      tiles.push(['Hot days needed to break even', fmt(pb.days_needed,1), 'days',
+        `at ${fmt(pb.at_f,1)}°F, the hottest on record`]);
+      tiles.push(['Your summers actually deliver', fmt(pb.days_available,1), 'days',
+        `per season that save money — ` +
+        (pb.days_available >= pb.days_needed ? 'enough' : 'not enough')]);
+    } else {
+      tiles.push(['Hot days needed to break even', 'Never', '',
+        `even at ${fmt(pb.at_f,1)}°F it costs ${fmt(pb.delta_at_hottest,1)} kWh more per day`]);
+      tiles.push(['Break-even would need', fmt(c.breakeven_lo,0)+'°F', 'daily mean',
+        `${fmt(c.breakeven_lo - pb.at_f,0)}°F hotter than anything on record`]);
+    }
+    tiles.push(['Cost per cooling season', '$'+fmt(pb.season_deficit_cost,0), '',
+      `${fmt(pb.season_deficit_kwh,0)} kWh across ${pb.seasons.join(', ')} weather`]);
+    document.getElementById('paybackStats').innerHTML = tiles.map(([k,v,u,n]) =>
+      `<div class="stat"><div class="k">${k}</div>
+        <div class="v">${v}${u?`<span class="u">${u}</span>`:''}</div>
+        <div class="n">${n}</div></div>`).join('');
+  } else {
+    document.getElementById('paybackStats').innerHTML = '';
+  }
+
   document.getElementById('compareTitle').textContent =
     `Before vs after — ${nUnits} unit${nUnits>1?'s':''} added ${c.change}`;
   document.getElementById('compareSub').innerHTML =
@@ -769,6 +796,16 @@ function renderCompare(c) {
     `${fmt(c.est_share_after,0)}% of the after period and ${fmt(c.est_share_before,0)}% `
   + `of the before period is reconstructed rather than measured — these figures `
   + `shift when real data replaces it.`);
+  const h = c.history || [];
+  if (h.length > 1) {
+    const first = h[0], last = h[h.length-1];
+    notes.push(`Rolling: recomputed on every refresh. Season cost estimate was `
+      + `$${fmt(first.season_cost,0)} on ${first.day}, now $${fmt(last.season_cost,0)} `
+      + `(${h.length} daily snapshots).`);
+  } else {
+    notes.push('Rolling: recomputed from the database on every refresh, so these '
+      + 'figures sharpen automatically as more days accumulate.');
+  }
   if (c.weak) notes.push(
     `Thin fit (n=${c.before.n} before, ${c.after.n} after). Directional only; `
   + `it sharpens as more days accumulate.`);

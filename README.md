@@ -140,6 +140,16 @@ Raw before/after kWh mostly measures the weather. This regresses daily household
 kWh against cooling degree days (daily mean above 65 °F, from Open-Meteo, cached
 permanently in SQLite) for each period, then solves for where the two lines cross.
 
+The headline is a payback figure: **how many hot days a season would need for the
+new setup to pay for the mild days it costs you**, given your actual local
+climate. When even the hottest day on record still costs more, it says `Never`
+and shows the shortfall rather than quoting a temperature that cannot occur.
+
+It is rolling — recomputed from the database on every page refresh, and a daily
+snapshot is kept in `estimate_log` so you can watch the figure converge as real
+days replace estimates. The first write of each day wins, so refreshing does not
+overwrite the day's value.
+
 Both surfaces state their own weaknesses rather than leaving you to infer them:
 
 - **Extrapolation.** The break-even usually sits beyond the hottest day in the

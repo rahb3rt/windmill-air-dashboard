@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS weather_hourly (
 );
 
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
+
+-- one row per day per metric, so a rolling estimate can be seen converging
+CREATE TABLE IF NOT EXISTS estimate_log (
+  day TEXT NOT NULL, key TEXT NOT NULL, value REAL, PRIMARY KEY (day, key)
+);
 """
 
 
@@ -249,6 +254,21 @@ def covered_hours(con, unit, t0, t1):
     r = con.execute("SELECT COUNT(*) n FROM hourly WHERE unit=? AND hour>=? AND hour<?",
                     (unit, hour_of(t0), t1)).fetchone()
     return r["n"] if r else 0
+
+
+def log_estimate(con, key, value, day=None):
+    """Record today's value of a rolling estimate. First write of the day wins,
+    so a page refresh cannot overwrite the day's figure with a mid-day one."""
+    day = day or time.strftime("%Y-%m-%d")
+    con.execute("INSERT OR IGNORE INTO estimate_log(day,key,value) VALUES (?,?,?)",
+                (day, key, value))
+    con.commit()
+
+
+def estimate_history(con, key, limit=30):
+    return [(r["day"], r["value"]) for r in con.execute(
+        "SELECT day, value FROM estimate_log WHERE key=? ORDER BY day DESC LIMIT ?",
+        (key, limit))][::-1]
 
 
 def set_meta(con, k, v):

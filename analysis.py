@@ -226,6 +226,43 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
             "delta_hi": round(fq["a"] + impute_hi + fq["b"] * cdd - before, 2),
         })
 
+    # --- how many hot days a season would need for this to pay for itself
+    #
+    # delta(cdd) = A + B*cdd is the daily cost of the new setup versus the old.
+    # A > 0 (more units idling) and B < 0 (each is less strained), so mild days
+    # cost and hot days save. The question is whether a realistic number of hot
+    # days can offset the rest of the season.
+    A = fq["a"] + impute_lo - fp["a"]
+    B = fq["b"] - fp["b"]
+    payback = None
+    hist_all = [(d, m, x) for d, (m, x) in weather_map(con).items() if d[5:7] in SUMMER]
+    if hist_all:
+        per_season_days = {}
+        for d, m, _ in hist_all:
+            per_season_days.setdefault(d[:4], []).append(max(0.0, m - BASE_F))
+        full_seasons = {y: v for y, v in per_season_days.items() if len(v) >= 100}
+        if full_seasons:
+            hottest = max(m for _, m, _ in hist_all)
+            hot_cdd = hottest - BASE_F
+            delta_hot = A + B * hot_cdd          # kWh/day on the hottest day on record
+            # cost carried by every day that does not save
+            deficits = [statistics.mean(
+                [max(0.0, A + B * c) for c in v]) * len(v) for v in full_seasons.values()]
+            deficit = statistics.mean(deficits)
+            saves = delta_hot < 0
+            days_available = statistics.mean(
+                [sum(1 for c in v if A + B * c < 0) for v in full_seasons.values()])
+            payback = {
+                "possible": bool(saves),
+                "days_needed": round(deficit / -delta_hot, 1) if saves else None,
+                "at_f": round(hottest, 1),
+                "days_available": round(days_available, 1),
+                "season_deficit_kwh": round(deficit, 1),
+                "season_deficit_cost": round(deficit * rate, 2),
+                "delta_at_hottest": round(delta_hot, 2),
+                "seasons": sorted(full_seasons),
+            }
+
     # --- how often the local climate actually reaches break-even
     climate = None
     hist = [(d, m, x) for d, (m, x) in weather_map(con).items() if d[5:7] in SUMMER]
@@ -253,8 +290,15 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
                     statistics.mean(sum(v) * rate for v in full.values()), 0),
             }
 
+    if payback:
+        store.log_estimate(con, "season_cost", payback["season_deficit_cost"])
+        store.log_estimate(con, "days_needed",
+                           payback["days_needed"] if payback["possible"] else -1)
+    history = store.estimate_history(con, "season_cost")
+
     return {
         "available": True,
+        "history": [{"day": d, "season_cost": v} for d, v in history],
         "change": change, "resume": resume, "rate": rate,
         "new_units": sorted(new_units),
         "imputed": sorted(missing),
@@ -269,6 +313,7 @@ def comparison(con, change=None, new_units=None, settle=2, rate=None):
         "per_degree": round(-d_slope * rate, 3),
         "rows": rows,
         "climate": climate,
+        "payback": payback,
         "weak": min(fp["r2"], fq["r2"]) < 0.5 or min(fp["n"], fq["n"]) < 10,
         "estimate_heavy": max(est_pre, est_post) >= 10,
     }

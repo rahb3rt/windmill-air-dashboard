@@ -64,6 +64,19 @@ def main():
     else:
         print("\nNo break-even: the newer setup is cheaper at every temperature.")
 
+    pb = c.get("payback")
+    if pb:
+        print()
+        if pb["possible"]:
+            print(f"Hot days needed to break even: {pb['days_needed']:.1f} per season "
+                  f"at {pb['at_f']:.1f}F; your summers deliver {pb['days_available']:.1f}.")
+        else:
+            print(f"Hot days needed to break even: never. Even at {pb['at_f']:.1f}F, the "
+                  f"hottest daily mean on record, it costs "
+                  f"{pb['delta_at_hottest']:+.1f} kWh/day more.")
+        print(f"  Cost per cooling season: ${pb['season_deficit_cost']:.0f} "
+              f"({pb['season_deficit_kwh']:.0f} kWh).")
+
     cl = c["climate"]
     if cl:
         print(f"  In {', '.join(cl['seasons'])} local summers that happened "
