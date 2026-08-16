@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Keeps the sampler running across logout and reboot, which is what makes
+  ranges longer than Windmill's own 30-day retention possible.
+
+  Edit REPLACE_WITH_PATH below, then:
+      cp com.windmill.dashboard.plist ~/Library/LaunchAgents/
+      launchctl load ~/Library/LaunchAgents/com.windmill.dashboard.plist
+  To stop:
+      launchctl unload ~/Library/LaunchAgents/com.windmill.dashboard.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.windmill.dashboard</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>REPLACE_WITH_PATH/serve.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>REPLACE_WITH_PATH</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>REPLACE_WITH_PATH/server.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_WITH_PATH/server.log</string>
+</dict>
+</plist>

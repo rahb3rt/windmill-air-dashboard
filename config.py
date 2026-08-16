@@ -23,7 +23,13 @@ def _load_env():
 _ENV = _load_env()
 
 HOST = _ENV.get("WINDMILL_HOST", "dashboard.windmillair.com")
-RATE_PER_KWH = float(_ENV.get("WINDMILL_RATE_PER_KWH", 0.24))
+
+#: Fallback only -- the live rate is stored in the database and edited in the UI.
+RATE_PER_KWH = float(_ENV.get("WINDMILL_RATE_PER_KWH", 0.105))
+
+#: Datastream carrying instantaneous watts. Confirmed as Windmill's "Power"
+#: stream by correlating its CSV export against live pin reads.
+POWER_PIN = _ENV.get("WINDMILL_POWER_PIN", "v15")
 
 #: [{"name": "Living Room", "token": "..."}] — order follows .env
 DEVICES = [

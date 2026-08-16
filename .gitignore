@@ -8,3 +8,9 @@ samples.jsonl
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local telemetry database
+windmill.db
+windmill.db-wal
+windmill.db-shm
+samples.jsonl

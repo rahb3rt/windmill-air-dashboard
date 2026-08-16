@@ -7,119 +7,118 @@
 <style>
   :root {
     color-scheme: light;
-    --page:           #f9f9f7;
-    --surface-1:      #fcfcfb;
-    --text-primary:   #0b0b0b;
-    --text-secondary: #52514e;
-    --text-muted:     #898781;
-    --grid:           #e1e0d9;
-    --axis:           #c3c2b7;
-    --border:         rgba(11,11,11,0.10);
-    --good:           #0ca30c;
-    --critical:       #d03b3b;
+    --page:#f9f9f7; --surface-1:#fcfcfb;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --accent-wash:rgba(42,120,214,0.10);
     --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
     --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7;
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
       color-scheme: dark;
-      --page:           #0d0d0d;
-      --surface-1:      #1a1a19;
-      --text-primary:   #ffffff;
-      --text-secondary: #c3c2b7;
-      --text-muted:     #898781;
-      --grid:           #2c2c2a;
-      --axis:           #383835;
-      --border:         rgba(255,255,255,0.10);
+      --page:#0d0d0d; --surface-1:#1a1a19;
+      --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5; --accent-wash:rgba(57,135,229,0.16);
       --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
       --s5:#d55181; --s6:#008300; --s7:#9085e9;
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --page:#0d0d0d; --surface-1:#1a1a19; --text-primary:#fff;
-    --text-secondary:#c3c2b7; --text-muted:#898781; --grid:#2c2c2a;
-    --axis:#383835; --border:rgba(255,255,255,0.10);
+    --page:#0d0d0d; --surface-1:#1a1a19;
+    --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --accent:#3987e5; --accent-wash:rgba(57,135,229,0.16);
     --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
     --s5:#d55181; --s6:#008300; --s7:#9085e9;
   }
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 28px 20px 64px;
-    background: var(--page); color: var(--text-primary);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  .wrap { max-width: 1100px; margin: 0 auto; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:26px 20px 64px; background:var(--page); color:var(--text-primary);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1120px; margin:0 auto; }
 
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
-  h1 { font-size: 21px; font-weight: 620; margin: 0; letter-spacing: -0.01em; }
-  .meta { color: var(--text-muted); font-size: 13px; margin-left: auto; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); display: inline-block; }
+  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  h1 { font-size:21px; font-weight:620; margin:0; letter-spacing:-.01em; }
+  .meta { color:var(--text-muted); font-size:13px; margin-left:auto; }
+  .dot { width:7px; height:7px; border-radius:50%; background:#0ca30c; display:inline-block; }
 
-  h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;
-       color: var(--text-secondary); margin: 0 0 4px; }
-  .sub { font-size: 12.5px; color: var(--text-muted); margin: 0 0 16px; }
+  h2 { font-size:13px; font-weight:600; letter-spacing:.02em; text-transform:uppercase;
+       color:var(--text-secondary); margin:0 0 4px; }
+  .sub { font-size:12.5px; color:var(--text-muted); margin:0 0 16px; }
+  section { background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
+            padding:20px; margin-bottom:18px; }
 
-  section { background: var(--surface-1); border: 1px solid var(--border);
-            border-radius: 12px; padding: 20px; margin-bottom: 18px; }
+  /* toolbar */
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:18px; }
+  .presets { display:flex; flex-wrap:wrap; gap:2px; background:var(--border);
+             border:1px solid var(--border); border-radius:9px; overflow:hidden; }
+  .presets button { border:0; background:var(--surface-1); color:var(--text-secondary);
+    padding:7px 13px; font:inherit; font-size:13px; cursor:pointer; }
+  .presets button:hover { background:var(--accent-wash); color:var(--text-primary); }
+  .presets button[aria-pressed="true"] { background:var(--accent); color:#fff; font-weight:560; }
+  .field { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-muted); }
+  input[type=date], input[type=number] { font:inherit; font-size:13px; padding:6px 9px;
+    border:1px solid var(--border); border-radius:8px; background:var(--surface-1);
+    color:var(--text-primary); }
+  input[type=number] { width:86px; font-variant-numeric:tabular-nums; }
+  .ghost { border:1px solid var(--border); background:var(--surface-1); color:var(--text-secondary);
+    border-radius:8px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; }
+  .ghost:hover { background:var(--accent-wash); color:var(--text-primary); }
 
-  /* hero stat row */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 2px;
-           background: var(--border); border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
-  .stat { background: var(--surface-1); padding: 18px 20px; }
-  .stat .k { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-  .stat .v { font-size: 27px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
-  .stat .u { font-size: 14px; font-weight: 500; color: var(--text-secondary); margin-left: 3px; }
-  .stat .n { font-size: 12px; color: var(--text-muted); margin-top: 5px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:2px;
+           background:var(--border); border:1px solid var(--border); border-radius:12px;
+           overflow:hidden; margin-bottom:18px; }
+  .stat { background:var(--surface-1); padding:18px 20px; }
+  .stat .k { font-size:12px; color:var(--text-muted); margin-bottom:6px; }
+  .stat .v { font-size:27px; font-weight:600; letter-spacing:-.02em; line-height:1.1; }
+  .stat .u { font-size:14px; font-weight:500; color:var(--text-secondary); margin-left:3px; }
+  .stat .n { font-size:12px; color:var(--text-muted); margin-top:5px; }
 
-  /* unit cards */
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px,1fr)); gap: 12px; }
-  .card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 15px; }
-  .card .top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; }
-  .card .nm { font-weight: 580; font-size: 14.5px; }
-  .pill { margin-left: auto; font-size: 11px; padding: 2px 7px; border-radius: 20px;
-          border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap; }
-  .temps { display: flex; align-items: baseline; gap: 6px; margin-bottom: 12px; }
-  .temps .now { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
-  .temps .tgt { font-size: 13px; color: var(--text-muted); }
-  .rows { font-size: 13px; }
-  .row { display: flex; justify-content: space-between; padding: 3px 0; }
-  .row span:first-child { color: var(--text-muted); }
-  .row span:last-child { font-variant-numeric: tabular-nums; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(232px,1fr)); gap:12px; }
+  .card { border:1px solid var(--border); border-radius:10px; padding:14px 15px; }
+  .card .top { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .swatch { width:9px; height:9px; border-radius:2px; flex:none; }
+  .card .nm { font-weight:580; font-size:14.5px; }
+  .pill { margin-left:auto; font-size:11px; padding:2px 7px; border-radius:20px;
+          border:1px solid var(--border); color:var(--text-secondary); white-space:nowrap; }
+  .temps { display:flex; align-items:baseline; gap:6px; margin-bottom:12px; }
+  .temps .now { font-size:30px; font-weight:600; letter-spacing:-.02em; }
+  .temps .tgt { font-size:13px; color:var(--text-muted); }
+  .rows { font-size:13px; }
+  .row { display:flex; justify-content:space-between; padding:3px 0; }
+  .row span:first-child { color:var(--text-muted); }
+  .row span:last-child { font-variant-numeric:tabular-nums; }
 
-  /* charts */
-  svg { display: block; width: 100%; height: auto; overflow: visible; }
-  .tick { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-  .lbl  { fill: var(--text-primary); font-size: 12px; font-weight: 550; font-variant-numeric: tabular-nums; }
-  .lbl2 { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-  .gridline { stroke: var(--grid); stroke-width: 1; }
-  .baseline { stroke: var(--axis); stroke-width: 1; }
+  svg { display:block; width:100%; height:auto; overflow:visible; }
+  .tick { fill:var(--text-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .lbl  { fill:var(--text-primary); font-size:12px; font-weight:550; font-variant-numeric:tabular-nums; }
+  .lbl2 { fill:var(--text-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .gridline { stroke:var(--grid); stroke-width:1; }
+  .baseline { stroke:var(--axis); stroke-width:1; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:14px; font-size:12.5px;
+            color:var(--text-secondary); }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:6px; }
 
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 14px; font-size: 12.5px;
-            color: var(--text-secondary); }
-  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th,td { text-align:right; padding:7px 10px; white-space:nowrap;
+          border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { color:var(--text-muted); font-weight:550; font-size:12px; }
+  td.unmapped { color:var(--text-muted); }
+  .key { color:var(--text-secondary); font-size:12px; }
 
-  /* table */
-  .scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: right; padding: 7px 10px; white-space: nowrap;
-           border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
-  th:first-child, td:first-child { text-align: left; }
-  thead th { color: var(--text-muted); font-weight: 550; font-size: 12px; }
-  tfoot td { font-weight: 620; border-bottom: none; border-top: 2px solid var(--axis); }
-  td.unmapped { color: var(--text-muted); }
-  .key { color: var(--text-secondary); font-size: 12px; }
-
-  details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
-  .tip { position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
-         background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
-         padding: 9px 11px; font-size: 12.5px; box-shadow: 0 4px 18px rgba(0,0,0,.16); z-index: 9;
-         font-variant-numeric: tabular-nums; }
-  .tip b { display: block; margin-bottom: 5px; font-size: 12px; }
-  .tip .tr { display: flex; gap: 14px; justify-content: space-between; }
-  .empty { color: var(--text-muted); font-size: 13px; padding: 28px 0; text-align: center; }
+  .tip { position:fixed; pointer-events:none; opacity:0; transition:opacity .1s;
+         background:var(--surface-1); border:1px solid var(--border); border-radius:8px;
+         padding:9px 11px; font-size:12.5px; box-shadow:0 4px 18px rgba(0,0,0,.16); z-index:9;
+         font-variant-numeric:tabular-nums; max-width:280px; }
+  .tip b { display:block; margin-bottom:5px; font-size:12px; }
+  .tip .tr { display:flex; gap:14px; justify-content:space-between; }
+  .empty { color:var(--text-muted); font-size:13px; padding:28px 0; text-align:center; }
+  .note { font-size:12px; color:var(--text-muted); margin-top:12px; }
 </style>
 </head>
 <body>
@@ -129,18 +128,31 @@
     <span class="meta" id="meta">loading…</span>
   </header>
 
+  <div class="toolbar">
+    <div class="presets" id="presets"></div>
+    <span class="field">
+      <input type="date" id="from"> <span>to</span> <input type="date" id="to">
+      <button class="ghost" id="apply">Apply</button>
+    </span>
+    <span class="field" style="margin-left:auto">
+      $<input type="number" id="rate" step="0.001" min="0"> / kWh
+    </span>
+    <button class="ghost" id="backfillBtn" title="Pull up to 30 days of history from Windmill">
+      Backfill</button>
+  </div>
+
   <div class="stats" id="stats"></div>
 
   <section>
-    <h2>Energy used today, by unit</h2>
+    <h2 id="energyTitle">Energy by unit</h2>
     <p class="sub" id="energySub"></p>
     <div id="barChart"></div>
   </section>
 
   <section>
-    <h2>Power draw over time</h2>
-    <p class="sub">Watts per unit. Flat and low means idle; the steps are compressor cycles.</p>
-    <div id="lineChart"></div>
+    <h2 id="trendTitle">Over time</h2>
+    <p class="sub" id="trendSub"></p>
+    <div id="trendChart"></div>
     <div class="legend" id="legend"></div>
   </section>
 
@@ -152,9 +164,10 @@
 
   <section>
     <h2>All metrics</h2>
-    <p class="sub">Every value each unit reports. Named rows are confirmed; the rest are
-      undocumented datastreams shown raw.</p>
+    <p class="sub">Live values for every datastream each unit reports. Named rows are
+      confirmed; the rest are undocumented and shown raw.</p>
     <div class="scroll" id="table"></div>
+    <p class="note" id="coverage"></p>
   </section>
 </div>
 <div class="tip" id="tip"></div>
@@ -164,133 +177,227 @@ const SERIES = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7'];
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const colorOf = i => css(SERIES[i % SERIES.length]);
 
-// Confirmed datastream names (V0-V4 verified against the community HA integration).
 const PIN_LABELS = {
-  v0:'Power', v1:'Room temperature (°F)', v2:'Target temperature (°F)',
-  v3:'Mode', v4:'Fan speed', v15:'Power draw (W)'
+  v0:'Power state', v1:'Room temperature (°F)', v2:'Target temperature (°F)',
+  v3:'Mode', v4:'Fan speed', v7:'Filter runtime (h)', v15:'Power draw (W)',
+  v30:'WiFi RSSI (dBm)', v31:'Protocol failure count'
 };
 const PIN_FMT = {
   v0: v => v==1 ? 'On' : 'Off',
   v3: v => ({0:'Fan',1:'Cool',2:'Eco'}[v] ?? v),
   v4: v => ({0:'Auto',1:'Low',2:'Medium',3:'High'}[v] ?? v),
 };
-const pinNum = s => parseInt(String(s).replace(/\D/g,''), 10);
+const PRESETS = [['today','Today'],['24h','24h'],['7d','7 days'],['30d','30 days'],
+                 ['mtd','Month'],['ytd','Year'],['12mo','12 mo']];
 
-const fmt = (n, d=0) => n==null ? '–' : Number(n).toLocaleString(undefined,
-  {minimumFractionDigits:d, maximumFractionDigits:d});
-const clock = ts => new Date(ts*1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-const dur = m => m>=60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`;
+let state = { range:'today', from:null, to:null, data:null };
+
+const fmt = (n,d=0) => n==null ? '–' :
+  Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const clock = ts => new Date(ts*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+const dayLbl = ts => new Date(ts*1000).toLocaleDateString([],{month:'short',day:'numeric'});
+const dur = m => m>=60 ? `${Math.floor(m/60)}h ${Math.round(m%60)}m` : `${Math.round(m)}m`;
+const isoDay = ts => new Date(ts*1000).toLocaleDateString('en-CA');
 
 const tip = document.getElementById('tip');
 function showTip(evt, html) {
-  tip.innerHTML = html;
-  tip.style.opacity = 1;
+  tip.innerHTML = html; tip.style.opacity = 1;
   const r = tip.getBoundingClientRect();
-  let x = evt.clientX + 14, y = evt.clientY + 14;
-  if (x + r.width > innerWidth - 8) x = evt.clientX - r.width - 14;
+  let x = evt.clientX+14, y = evt.clientY+14;
+  if (x + r.width  > innerWidth  - 8) x = evt.clientX - r.width  - 14;
   if (y + r.height > innerHeight - 8) y = evt.clientY - r.height - 14;
-  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  tip.style.left = x+'px'; tip.style.top = y+'px';
 }
 const hideTip = () => tip.style.opacity = 0;
 
-/* ---------- hero stats ---------- */
+/* ---------------- toolbar ---------------- */
+document.getElementById('presets').innerHTML = PRESETS.map(([k,l]) =>
+  `<button data-range="${k}" aria-pressed="false">${l}</button>`).join('');
+document.getElementById('presets').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state = { ...state, range:b.dataset.range, from:null, to:null };
+  load();
+});
+document.getElementById('apply').addEventListener('click', () => {
+  const f = document.getElementById('from').value, t = document.getElementById('to').value;
+  if (!f || !t) return;
+  state = { ...state, range:null,
+            from: new Date(f+'T00:00:00').getTime()/1000,
+            to:   new Date(t+'T23:59:59').getTime()/1000 };
+  load();
+});
+document.getElementById('rate').addEventListener('change', async e => {
+  const v = parseFloat(e.target.value);
+  if (!(v >= 0)) return;
+  await fetch('/api/rate?set=' + v);
+  load();
+});
+document.getElementById('backfillBtn').addEventListener('click', async e => {
+  e.target.disabled = true; e.target.textContent = 'Backfilling…';
+  try {
+    const r = await (await fetch('/api/backfill')).json();
+    const ok = (r.results||[]).filter(x => x.status==='ok').length;
+    e.target.textContent = `${ok}/${(r.results||[]).length} updated`;
+  } catch { e.target.textContent = 'Failed'; }
+  setTimeout(() => { e.target.disabled = false; e.target.textContent = 'Backfill'; }, 2600);
+  load();
+});
+
+/* ---------------- stats ---------------- */
 function renderStats(d) {
-  const t = d.totals;
-  const cells = [
+  const t = d.totals, days = d.range.span/86400;
+  document.getElementById('stats').innerHTML = [
+    ['Energy used', fmt(t.kwh, t.kwh<10?2:1), 'kWh', d.range.label.toLowerCase()],
+    ['Cost', '$'+fmt(t.cost,2), '', `at $${d.rate.toFixed(3)}/kWh`],
+    ['Average per day', fmt(t.daily_avg_kwh,2), 'kWh', `over ${fmt(days,days<3?1:0)} days`],
     ['Drawing now', fmt(t.watts), 'W', `${t.online} of ${t.count} units online`],
-    ['Used today', fmt(t.kwh, 2), 'kWh', d.since ? `since ${clock(d.since)}` : 'no history yet'],
-    ['Cost today', '$' + fmt(t.cost, 2), '', `at $${d.rate.toFixed(2)}/kWh`],
-    ['Compressor time', dur(t.cooling_min), '', 'summed across all units'],
-  ];
-  document.getElementById('stats').innerHTML = cells.map(([k,v,u,n]) => `
-    <div class="stat"><div class="k">${k}</div>
+  ].map(([k,v,u,n]) => `<div class="stat"><div class="k">${k}</div>
       <div class="v">${v}${u?`<span class="u">${u}</span>`:''}</div>
       <div class="n">${n}</div></div>`).join('');
 }
 
-/* ---------- bar chart: energy by unit ---------- */
+/* ---------------- bars: energy by unit ---------------- */
 function renderBars(d) {
   const el = document.getElementById('barChart');
   const units = [...d.units].sort((a,b) => b.kwh - a.kwh);
-  const max = Math.max(...units.map(u => u.kwh), 0.001);
-  const idx = new Map(d.units.map((u,i) => [u.name, i]));
-
-  const W = 900, rowH = 34, padL = 132, padR = 108;
-  const plot = W - padL - padR;
+  const max = Math.max(...units.map(u => u.kwh), .001);
+  const idx = new Map(d.units.map((u,i) => [u.name,i]));
+  const W = 900, rowH = 34, padL = 138, padR = 150, plot = W - padL - padR;
   const H = units.length * rowH + 8;
 
-  const bars = units.map((u, i) => {
-    const y = i * rowH + 6, bh = 18;
-    const w = Math.max(2, (u.kwh / max) * plot);   // keep a nub visible at zero
-    const c = colorOf(idx.get(u.name));
+  const bars = units.map((u,i) => {
+    const y = i*rowH + 6, w = Math.max(2, (u.kwh/max)*plot), c = colorOf(idx.get(u.name));
     return `<g class="bar" data-name="${u.name}">
       <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
       <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end">${u.name}</text>
-      <rect x="${padL}" y="${y}" width="${w}" height="${bh}" rx="4" fill="${c}"></rect>
+      <rect x="${padL}" y="${y}" width="${w}" height="18" rx="4" fill="${c}"></rect>
       <text class="lbl" x="${padL+w+8}" y="${y+13}">${fmt(u.kwh,2)} kWh</text>
-      <text class="lbl2" x="${W}" y="${y+13}" text-anchor="end">${fmt(u.share,1)}%</text>
+      <text class="lbl2" x="${W}" y="${y+13}" text-anchor="end">$${fmt(u.cost,2)} · ${fmt(u.share,1)}%</text>
     </g>`;
   }).join('');
 
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
-      aria-label="Energy used today by unit">${bars}</svg>`;
+    aria-label="Energy used by unit">${bars}</svg>`;
 
   el.querySelectorAll('.bar').forEach(g => {
     const u = units.find(x => x.name === g.dataset.name);
     g.addEventListener('mousemove', e => showTip(e, `<b>${u.name}</b>
-      <div class="tr"><span>Energy today</span><span>${fmt(u.kwh,3)} kWh</span></div>
+      <div class="tr"><span>Energy</span><span>${fmt(u.kwh,3)} kWh</span></div>
       <div class="tr"><span>Cost</span><span>$${fmt(u.cost,2)}</span></div>
-      <div class="tr"><span>Share of total</span><span>${fmt(u.share,1)}%</span></div>
-      <div class="tr"><span>Compressor time</span><span>${dur(u.cooling_min)}</span></div>
-      <div class="tr"><span>Drawing now</span><span>${fmt(u.watts)} W</span></div>`));
+      <div class="tr"><span>Share</span><span>${fmt(u.share,1)}%</span></div>
+      <div class="tr"><span>Compressor</span><span>${dur(u.cooling_min)}</span></div>
+      <div class="tr"><span>Peak draw</span><span>${fmt(u.peak_w)} W</span></div>`));
     g.addEventListener('mouseleave', hideTip);
   });
 
+  document.getElementById('energyTitle').textContent = `Energy by unit — ${d.range.label}`;
   document.getElementById('energySub').textContent =
-    d.samples > 1
-      ? `Integrated from ${d.samples.toLocaleString()} power samples taken since ${clock(d.since)}.`
-      : 'Collecting the first samples — this fills in as the logger runs.';
+    `${fmt(d.totals.kwh,2)} kWh total, $${fmt(d.totals.cost,2)}. Ranked highest first.`;
 }
 
-/* ---------- line chart: power over time ---------- */
-function renderLines(d) {
-  const el = document.getElementById('lineChart');
-  const t = d.series.t, names = Object.keys(d.series.units);
-  if (t.length < 2) {
-    el.innerHTML = `<div class="empty">Not enough history yet — leave serve.py running
-      and this chart fills in within a few minutes.</div>`;
+/* ---------------- trend: stacked kWh bars, or watt lines ---------------- */
+function renderTrend(d) {
+  const el = document.getElementById('trendChart');
+  const s = d.series, names = Object.keys(s.units);
+  document.getElementById('legend').innerHTML = names.map((n,i) =>
+    `<span><i style="background:${colorOf(i)}"></i>${n}</span>`).join('');
+
+  if (!s.t.length || (s.unit==='W' && s.t.length < 2)) {
+    el.innerHTML = `<div class="empty">No data in this range yet.</div>`;
+    document.getElementById('trendSub').textContent = '';
     return;
   }
-  const W = 900, H = 260, padL = 46, padR = 12, padT = 10, padB = 26;
-  const maxW = Math.max(10, ...names.flatMap(n => d.series.units[n].filter(v => v!=null)));
-  const yMax = Math.ceil(maxW / 100) * 100 || 100;
-  const x = i => padL + (i / (t.length - 1)) * (W - padL - padR);
-  const y = v => padT + (1 - v / yMax) * (H - padT - padB);
+  const W = 900, H = 280, padL = 52, padR = 12, padT = 10, padB = 28;
+  const x0 = padL, x1 = W - padR, y0 = H - padB, y1 = padT;
 
-  const ticks = [0, .25, .5, .75, 1].map(f => Math.round(yMax * f));
+  if (s.unit === 'W') return renderLines(d, el, {W,H,padL,padR,padT,padB});
+
+  /* stacked bars: one bucket per column */
+  const totals = s.t.map((_,i) => names.reduce((a,n) => a + (s.units[n][i]||0), 0));
+  const yMax = Math.max(...totals, .001);
+  const bw = Math.max(2, (x1-x0)/s.t.length - 2);
+  const yOf = v => y0 - (v/yMax)*(y0-y1);
+
+  const ticks = [0,.25,.5,.75,1].map(f => yMax*f);
   const grid = ticks.map(v => `
-    <line class="gridline" x1="${padL}" x2="${W-padR}" y1="${y(v)}" y2="${y(v)}"></line>
-    <text class="tick" x="${padL-8}" y="${y(v)+4}" text-anchor="end">${v}</text>`).join('');
+    <line class="gridline" x1="${x0}" x2="${x1}" y1="${yOf(v)}" y2="${yOf(v)}"></line>
+    <text class="tick" x="${x0-8}" y="${yOf(v)+4}" text-anchor="end">${fmt(v, yMax<2?2:1)}</text>`).join('');
 
-  const nTime = Math.min(6, t.length);
-  const times = Array.from({length:nTime}, (_,k) => Math.round(k*(t.length-1)/(nTime-1)))
-    .map(i => `<text class="tick" x="${x(i)}" y="${H-6}" text-anchor="middle">${clock(t[i])}</text>`).join('');
+  const cols = s.t.map((ts,i) => {
+    const cx = x0 + (i+.5)*((x1-x0)/s.t.length);
+    let acc = 0;
+    const segs = names.map((n,k) => {
+      const v = s.units[n][i] || 0;
+      if (v <= 0) return '';
+      const top = yOf(acc+v), bot = yOf(acc); acc += v;
+      const h = Math.max(1, bot-top-2);   // 2px surface gap between segments
+      return `<rect x="${cx-bw/2}" y="${top}" width="${bw}" height="${h}"
+        rx="${h>4?2:0}" fill="${colorOf(k)}"></rect>`;
+    }).join('');
+    return `<g class="col" data-i="${i}">
+      <rect x="${cx-((x1-x0)/s.t.length)/2}" y="${y1}" width="${(x1-x0)/s.t.length}"
+        height="${y0-y1}" fill="transparent"></rect>${segs}</g>`;
+  }).join('');
 
-  const paths = names.map((n, i) => {
-    let dstr = '', pen = false;
-    d.series.units[n].forEach((v, j) => {
-      if (v == null) { pen = false; return; }
-      dstr += (pen ? 'L' : 'M') + x(j).toFixed(1) + ' ' + y(v).toFixed(1) + ' ';
-      pen = true;
+  const step = Math.ceil(s.t.length/7);
+  const xlabels = s.t.map((ts,i) => i % step ? '' :
+    `<text class="tick" x="${x0+(i+.5)*((x1-x0)/s.t.length)}" y="${H-8}"
+      text-anchor="middle">${s.bucket >= 86400 ? dayLbl(ts)
+        : dayLbl(ts)+' '+clock(ts)}</text>`).join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Energy per period by unit">
+    ${grid}${cols}${xlabels}
+    <line class="baseline" x1="${x0}" x2="${x1}" y1="${y0}" y2="${y0}"></line>
+    <text class="tick" x="${x0-8}" y="${y1-2}" text-anchor="end">kWh</text></svg>`;
+
+  el.querySelectorAll('.col').forEach(g => {
+    const i = +g.dataset.i;
+    const rows = names.map((n,k) => ({n, v:s.units[n][i]||0, k}))
+                      .filter(r => r.v > 0).sort((a,b) => b.v-a.v);
+    g.addEventListener('mousemove', e => showTip(e,
+      `<b>${dayLbl(s.t[i])}${s.bucket < 86400 ? ' '+clock(s.t[i]) : ''}</b>` +
+      rows.map(r => `<div class="tr"><span><i style="display:inline-block;width:8px;
+        height:8px;border-radius:2px;margin-right:6px;background:${colorOf(r.k)}"></i>${r.n}</span>
+        <span>${fmt(r.v,2)} kWh</span></div>`).join('') +
+      `<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);padding-top:5px">
+        <span>Total</span><span>${fmt(totals[i],2)} kWh · $${fmt(totals[i]*d.rate,2)}</span></div>`));
+    g.addEventListener('mouseleave', hideTip);
+  });
+
+  const per = s.bucket>=604800 ? 'week' : s.bucket>=86400 ? 'day' : s.bucket>=21600 ? '6 hours' : 'hour';
+  document.getElementById('trendTitle').textContent = `Energy over time — ${d.range.label}`;
+  document.getElementById('trendSub').textContent =
+    `kWh per ${per}, stacked by unit. Built from the ${d.resolution}.`;
+}
+
+function renderLines(d, el, g) {
+  const s = d.series, names = Object.keys(s.units), t = s.t;
+  const {W,H,padL,padR,padT,padB} = g;
+  const maxW = Math.max(10, ...names.flatMap(n => s.units[n].filter(v => v!=null)));
+  const yMax = Math.ceil(maxW/100)*100 || 100;
+  const X = i => padL + (i/(t.length-1))*(W-padL-padR);
+  const Y = v => padT + (1 - v/yMax)*(H-padT-padB);
+  const ticks = [0,.25,.5,.75,1].map(f => Math.round(yMax*f));
+  const grid = ticks.map(v => `
+    <line class="gridline" x1="${padL}" x2="${W-padR}" y1="${Y(v)}" y2="${Y(v)}"></line>
+    <text class="tick" x="${padL-8}" y="${Y(v)+4}" text-anchor="end">${v}</text>`).join('');
+  const n = Math.min(6, t.length);
+  const times = Array.from({length:n},(_,k)=>Math.round(k*(t.length-1)/(n-1)))
+    .map(i => `<text class="tick" x="${X(i)}" y="${H-6}" text-anchor="middle">${clock(t[i])}</text>`).join('');
+  const paths = names.map((nm,i) => {
+    let dstr='', pen=false;
+    s.units[nm].forEach((v,j) => {
+      if (v==null) { pen=false; return; }
+      dstr += (pen?'L':'M') + X(j).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; pen=true;
     });
     return `<path d="${dstr}" fill="none" stroke="${colorOf(i)}" stroke-width="2"
       stroke-linejoin="round" stroke-linecap="round"></path>`;
   }).join('');
 
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
-      aria-label="Power draw per unit over time">
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Power draw over time">
     ${grid}${times}
-    <line class="baseline" x1="${padL}" x2="${W-padR}" y1="${y(0)}" y2="${y(0)}"></line>
+    <line class="baseline" x1="${padL}" x2="${W-padR}" y1="${Y(0)}" y2="${Y(0)}"></line>
     ${paths}
     <g id="cross" style="display:none">
       <line class="baseline" y1="${padT}" y2="${H-padB}" stroke-dasharray="3 3"></line>
@@ -299,116 +406,121 @@ function renderLines(d) {
     </g>
     <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
       fill="transparent" id="hit"></rect>
-  </svg>`;
-
-  document.getElementById('legend').innerHTML = names.map((n,i) =>
-    `<span><i style="background:${colorOf(i)}"></i>${n}</span>`).join('');
+    <text class="tick" x="${padL-8}" y="${padT-2}" text-anchor="end">W</text></svg>`;
 
   const svg = el.querySelector('svg'), cross = el.querySelector('#cross');
   const vline = cross.querySelector('line'), dots = [...cross.querySelectorAll('circle')];
   el.querySelector('#hit').addEventListener('mousemove', e => {
     const r = svg.getBoundingClientRect();
-    const sx = (e.clientX - r.left) / r.width * W;
+    const sx = (e.clientX-r.left)/r.width*W;
     const i = Math.max(0, Math.min(t.length-1,
-      Math.round((sx - padL) / (W - padL - padR) * (t.length - 1))));
-    cross.style.display = '';
-    vline.setAttribute('x1', x(i)); vline.setAttribute('x2', x(i));
-    const rows = names.map((n, k) => {
-      const v = d.series.units[n][i];
-      dots[k].style.display = v == null ? 'none' : '';
-      if (v != null) { dots[k].setAttribute('cx', x(i)); dots[k].setAttribute('cy', y(v)); }
-      return v == null ? null : {n, v, k};
-    }).filter(Boolean).sort((a,b) => b.v - a.v);
+      Math.round((sx-padL)/(W-padL-padR)*(t.length-1))));
+    cross.style.display='';
+    vline.setAttribute('x1',X(i)); vline.setAttribute('x2',X(i));
+    const rows = names.map((nm,k) => {
+      const v = s.units[nm][i];
+      dots[k].style.display = v==null ? 'none' : '';
+      if (v!=null) { dots[k].setAttribute('cx',X(i)); dots[k].setAttribute('cy',Y(v)); }
+      return v==null ? null : {nm,v,k};
+    }).filter(Boolean).sort((a,b)=>b.v-a.v);
     showTip(e, `<b>${clock(t[i])}</b>` + rows.map(r =>
       `<div class="tr"><span><i style="display:inline-block;width:8px;height:8px;
-        border-radius:2px;margin-right:6px;background:${colorOf(r.k)}"></i>${r.n}</span>
+        border-radius:2px;margin-right:6px;background:${colorOf(r.k)}"></i>${r.nm}</span>
         <span>${fmt(r.v)} W</span></div>`).join(''));
   });
   el.querySelector('#hit').addEventListener('mouseleave', () => {
-    cross.style.display = 'none'; hideTip();
+    cross.style.display='none'; hideTip();
   });
+
+  document.getElementById('trendTitle').textContent = `Power draw — ${d.range.label}`;
+  document.getElementById('trendSub').textContent =
+    'Watts per unit. Flat and low is idle; the steps are compressor cycles.';
 }
 
-/* ---------- unit cards ---------- */
+/* ---------------- cards + table ---------------- */
 function renderCards(d) {
   document.getElementById('unitsSub').textContent =
-    `${d.totals.online} of ${d.totals.count} reporting. Temperatures in °F.`;
-  document.getElementById('cards').innerHTML = d.units.map((u, i) => {
+    `${d.totals.online} of ${d.totals.count} reporting. Energy figures cover ${d.range.label.toLowerCase()}.`;
+  document.getElementById('cards').innerHTML = d.units.map((u,i) => {
     const off = !u.online;
-    const state = off ? 'Offline' : (u.on ? `${u.mode} · fan ${u.fan}` : 'Off');
-    return `<div class="card" style="${off ? 'opacity:.55' : ''}">
-      <div class="top">
-        <span class="swatch" style="background:${colorOf(i)}"></span>
-        <span class="nm">${u.name}</span>
-        <span class="pill">${state}</span>
-      </div>
-      <div class="temps">
-        <span class="now">${u.temp==null?'–':fmt(u.temp)}°</span>
-        <span class="tgt">set to ${u.target==null?'–':fmt(u.target)}°</span>
-      </div>
+    const st = off ? 'Offline' : (u.on ? `${u.mode} · fan ${u.fan}` : 'Off');
+    return `<div class="card" style="${off?'opacity:.55':''}">
+      <div class="top"><span class="swatch" style="background:${colorOf(i)}"></span>
+        <span class="nm">${u.name}</span><span class="pill">${st}</span></div>
+      <div class="temps"><span class="now">${u.temp==null?'–':fmt(u.temp)}°</span>
+        <span class="tgt">set to ${u.target==null?'–':fmt(u.target)}°</span></div>
       <div class="rows">
         <div class="row"><span>Drawing now</span><span>${fmt(u.watts)} W</span></div>
-        <div class="row"><span>Used today</span><span>${fmt(u.kwh,2)} kWh</span></div>
-        <div class="row"><span>Cost today</span><span>$${fmt(u.cost,2)}</span></div>
+        <div class="row"><span>Energy</span><span>${fmt(u.kwh,2)} kWh</span></div>
+        <div class="row"><span>Cost</span><span>$${fmt(u.cost,2)}</span></div>
         <div class="row"><span>Compressor</span><span>${dur(u.cooling_min)}</span></div>
-        <div class="row"><span>Share of total</span><span>${fmt(u.share,1)}%</span></div>
+        <div class="row"><span>Share</span><span>${fmt(u.share,1)}%</span></div>
       </div></div>`;
   }).join('');
 }
 
-/* ---------- full metrics table ---------- */
 function renderTable(d) {
   const units = d.units;
   const pins = [...new Set(units.flatMap(u => Object.keys(u.pins)))]
-    .sort((a,b) => pinNum(a) - pinNum(b));
+    .sort((a,b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
   const derived = [
-    ['Energy today (kWh)', u => fmt(u.kwh,3)],
-    ['Cost today', u => '$' + fmt(u.cost,2)],
-    ['Compressor time', u => dur(u.cooling_min)],
-    ['Share of total', u => fmt(u.share,1) + '%'],
+    ['Energy (kWh)', u => fmt(u.kwh,3), fmt(d.totals.kwh,3)],
+    ['Cost', u => '$'+fmt(u.cost,2), '$'+fmt(d.totals.cost,2)],
+    ['Compressor time', u => dur(u.cooling_min), dur(d.totals.cooling_min)],
+    ['Peak draw (W)', u => fmt(u.peak_w), '–'],
+    ['Share of total', u => fmt(u.share,1)+'%', '100%'],
   ];
-  const head = `<tr><th>Metric</th>${units.map(u =>
-    `<th>${u.name}</th>`).join('')}<th>Total</th></tr>`;
-
-  const derivedRows = derived.map(([label, f]) => `<tr><td class="key">${label}</td>
-    ${units.map(u => `<td>${f(u)}</td>`).join('')}
-    <td>${label.startsWith('Energy') ? fmt(d.totals.kwh,3)
-        : label.startsWith('Cost') ? '$'+fmt(d.totals.cost,2)
-        : label.startsWith('Compressor') ? dur(d.totals.cooling_min) : '100%'}</td></tr>`).join('');
-
-  const pinRows = pins.map(p => {
-    const known = PIN_LABELS[p];
-    const label = known ? `${known} <span style="opacity:.5">${p.toUpperCase()}</span>`
-                        : `<span style="opacity:.7">${p.toUpperCase()}</span> unmapped`;
-    return `<tr><td class="key">${label}</td>${units.map(u => {
-      const v = u.pins[p];
-      if (v === undefined) return `<td class="unmapped">–</td>`;
-      const shown = PIN_FMT[p] ? PIN_FMT[p](v) : (typeof v === 'number' ? fmt(v, Number.isInteger(v)?0:3) : v);
-      return `<td class="${known?'':'unmapped'}">${shown}</td>`;
-    }).join('')}<td class="unmapped">–</td></tr>`;
-  }).join('');
-
   document.getElementById('table').innerHTML = `<table>
-    <thead>${head}</thead>
-    <tbody>${derivedRows}<tr><td colspan="${units.length+2}"
-      style="padding-top:16px;color:var(--text-muted);font-size:12px">
-      Raw datastreams</td></tr>${pinRows}</tbody></table>`;
+    <thead><tr><th>Metric</th>${units.map(u=>`<th>${u.name}</th>`).join('')}<th>Total</th></tr></thead>
+    <tbody>
+      ${derived.map(([l,f,tot]) => `<tr><td class="key">${l}</td>
+        ${units.map(u=>`<td>${f(u)}</td>`).join('')}<td>${tot}</td></tr>`).join('')}
+      <tr><td colspan="${units.length+2}" style="padding-top:16px;color:var(--text-muted);
+        font-size:12px">Live datastreams</td></tr>
+      ${pins.map(p => {
+        const known = PIN_LABELS[p];
+        const label = known ? `${known} <span style="opacity:.5">${p.toUpperCase()}</span>`
+                            : `<span style="opacity:.7">${p.toUpperCase()}</span> unmapped`;
+        return `<tr><td class="key">${label}</td>${units.map(u => {
+          const v = u.pins[p];
+          if (v === undefined) return `<td class="unmapped">–</td>`;
+          const shown = PIN_FMT[p] ? PIN_FMT[p](v)
+            : (typeof v==='number' ? fmt(v, Number.isInteger(v)?0:3) : v);
+          return `<td class="${known?'':'unmapped'}">${shown}</td>`;
+        }).join('')}<td class="unmapped">–</td></tr>`;
+      }).join('')}
+    </tbody></table>`;
 }
 
-/* ---------- load ---------- */
+/* ---------------- load ---------------- */
 async function load() {
+  const q = state.range ? `range=${state.range}`
+                        : `from=${Math.floor(state.from)}&to=${Math.floor(state.to)}`;
   try {
-    const d = await (await fetch('/api/summary')).json();
+    const d = await (await fetch('/api/summary?'+q)).json();
     if (d.error) throw new Error(d.error);
-    renderStats(d); renderBars(d); renderLines(d); renderCards(d); renderTable(d);
+    state.data = d;
+    document.querySelectorAll('#presets button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.range === state.range)));
+    const rateEl = document.getElementById('rate');
+    if (document.activeElement !== rateEl) rateEl.value = d.rate;
+    if (!document.getElementById('from').value) {
+      document.getElementById('from').value = isoDay(d.range.from);
+      document.getElementById('to').value = isoDay(d.range.to);
+    }
+    renderStats(d); renderBars(d); renderTrend(d); renderCards(d); renderTable(d);
     document.getElementById('meta').innerHTML =
-      `<span class="dot"></span> updated ${clock(d.updated)} · refreshes every 30s`;
+      `<span class="dot"></span> live · updated ${clock(d.updated)}`;
+    document.getElementById('coverage').textContent = d.coverage.start
+      ? `History starts ${new Date(d.coverage.start*1000).toLocaleString()}. `
+      + `Windmill retains 30 days; everything older accumulates here only while serve.py runs.`
+      : 'No history stored yet.';
   } catch (e) {
     document.getElementById('meta').textContent = 'error: ' + e.message;
   }
 }
 load();
-setInterval(load, 30000);
+setInterval(() => { if (!document.hidden) load(); }, 30000);
 </script>
 </body>
 </html>
