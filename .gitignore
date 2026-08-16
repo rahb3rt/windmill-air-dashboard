@@ -1,0 +1,10 @@
+# Secrets — Blynk device tokens grant full control of the AC units
+.env
+
+# Collected telemetry
+samples.jsonl
+*.log
+
+__pycache__/
+*.pyc
+.DS_Store
