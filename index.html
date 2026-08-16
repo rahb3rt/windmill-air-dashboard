@@ -253,7 +253,8 @@ const PIN_FMT = {
 const PRESETS = [['today','Today'],['24h','24h'],['7d','7 days'],['30d','30 days'],
                  ['mtd','Month'],['ytd','Year'],['12mo','12 mo']];
 
-let state = { range:'today', from:null, to:null, data:null, hidden:new Set() };
+let state = { range:'today', from:null, to:null, data:null, hidden:new Set(),
+              showTemp:true };
 let tempLegend = '', outdoorAt = null;
 
 /* Colour follows the unit, never its position in the filtered list, so hiding
@@ -368,6 +369,7 @@ document.getElementById('clearFilter').addEventListener('click', () => {
   state.hidden.clear(); rerender();
 });
 document.getElementById('legend').addEventListener('click', e => {
+  if (e.target.closest('[data-temp]')) { state.showTemp = !state.showTemp; rerender(); return; }
   const s = e.target.closest('[data-unit]'); if (s) toggleUnit(s.dataset.unit, false);
 });
 
@@ -462,43 +464,53 @@ function renderBars(d) {
         + `${(d.totals.estimated_units||[]).join(', ')} ran without reporting.` : '');
 }
 
-/* Outdoor temperature as a background wash.
+/* Outdoor temperature drawn over the energy chart on its own right-hand axis.
 
-   Deliberately NOT a second y-axis: with two scales, whether the curves appear
-   to track each other is set by the scaling, not the data. Encoding temperature
-   as background intensity keeps one axis and cannot manufacture a crossing. */
-function tempBackdrop(d, xOf, wOf, yTop, yBot) {
+   A second scale means the apparent gap between the curves is partly a choice
+   of ranges, so this is drawn to be followed, not measured against the bars:
+   a thin dashed neutral line that never borrows a series colour, with its own
+   ticks in F and the exact values in the temperature panel below. The scale is
+   rounded to whole 5F steps rather than fitted tightly to the data, so the
+   line's position stays comparable as the range changes. */
+function tempOverlay(d, xOf, yTop, yBot, xRight) {
   const tp = d.temps;
-  if (!tp || !tp.t.length) return {svg:'', lo:null, hi:null};
+  if (!state.showTemp || !tp || !tp.t.length) return {svg:'', at:null, lo:null, hi:null};
   const byHour = new Map();
   tp.t.forEach((ts,i) => { if (tp.outdoor[i]!=null) byHour.set(ts, tp.outdoor[i]); });
-  if (!byHour.size) return {svg:'', lo:null, hi:null};
-  const at = ts => {
-    if (byHour.has(ts)) return byHour.get(ts);
-    let best=null, bd=Infinity;
-    for (const [k,v] of byHour) { const dd=Math.abs(k-ts); if (dd<bd){bd=dd;best=v;} }
-    return bd <= (tp.bucket||3600)*1.5 ? best : null;
+  if (byHour.size < 2) return {svg:'', at:null, lo:null, hi:null};
+  const at = ts => byHour.has(ts) ? byHour.get(ts) : null;
+  const vals=[...byHour.values()];
+  const lo=Math.floor(Math.min(...vals)/5)*5, hi=Math.ceil(Math.max(...vals)/5)*5;
+  const Y = v => yBot - (v-lo)/((hi-lo)||1)*(yBot-yTop);
+  const ink = css('--text-secondary');
+
+  let path='', pen=false;
+  d.series.t.forEach((ts,i) => {
+    const v = at(ts);
+    if (v==null) { pen=false; return; }
+    path += (pen?'L':'M') + xOf(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+    pen = true;
+  });
+  const ticks = [0,.5,1].map(f => Math.round((lo + (hi-lo)*f)/5)*5);
+  const axis = ticks.map(v => `<text class="tick" x="${xRight+6}" y="${Y(v)+4}"
+    text-anchor="start" style="fill:${ink};opacity:.85">${v}°</text>`).join('');
+  return {
+    at, lo, hi,
+    svg: `<g aria-hidden="true">
+      <path d="${path}" fill="none" stroke="${ink}" stroke-width="1.75"
+        stroke-dasharray="5 3" stroke-linejoin="round" stroke-linecap="round"
+        opacity=".85"></path>${axis}
+      <text class="tick" x="${xRight+6}" y="${yTop-4}" text-anchor="start"
+        style="fill:${ink}">°F out</text></g>`,
   };
-  const vals=[...byHour.values()], lo=Math.min(...vals), hi=Math.max(...vals);
-  const c = css('--s2');
-  const rects = d.series.t.map((ts,i) => {
-    const v = at(ts); if (v==null) return '';
-    const n = hi>lo ? (v-lo)/(hi-lo) : .5;
-    return `<rect x="${xOf(i)}" y="${yTop}" width="${wOf(i)}" height="${yBot-yTop}"
-      fill="${c}" fill-opacity="${(0.04 + n*0.20).toFixed(3)}"></rect>`;
-  }).join('');
-  return {svg:`<g aria-hidden="true">${rects}</g>`, lo, hi, at};
 }
 
-function tempScaleLegend(lo, hi) {
-  if (lo==null) return '';
-  const c = css('--s2');
-  const steps = Array.from({length:5},(_,i)=>i/4);
-  return `<span style="display:inline-flex;align-items:center;gap:6px">
-    <span>${fmt(lo,0)}°F</span>
-    ${steps.map(n=>`<i style="width:14px;height:9px;border-radius:0;background:${c};
-      opacity:${(0.04+n*0.20)/0.24}"></i>`).join('')}
-    <span>${fmt(hi,0)}°F outdoor</span></span>`;
+function tempScaleLegend() {
+  const on = state.showTemp;
+  return `<span data-temp="1" style="cursor:pointer;user-select:none;opacity:${on?1:.45}"
+    title="Click to hide or show the outdoor temperature line">
+    <i style="background:transparent;border-top:2px dashed var(--text-secondary);
+      height:0;width:14px;border-radius:0;vertical-align:middle"></i>Outdoor °F</span>`;
 }
 
 /* ---------------- trend: stacked kWh bars, or watt lines ---------------- */
@@ -517,7 +529,7 @@ function renderTrend(d) {
   }
   tempLegend = '';
   const W = Math.max(300, el.clientWidth || 900), H = 280;
-  const padL = 52, padR = 12, padT = 10, padB = 28;
+  const padL = 52, padR = state.showTemp ? 44 : 12, padT = 14, padB = 28;
   const x0 = padL, x1 = W - padR, y0 = H - padB, y1 = padT;
 
   if (s.unit === 'W') return renderLines(d, el, {W,H,padL,padR,padT,padB}, setLegend);
@@ -556,10 +568,10 @@ function renderTrend(d) {
         : dayLbl(ts)+' '+clock(ts)}</text>`).join('');
 
   const slot = (x1-x0)/s.t.length;
-  const bd = tempBackdrop(d, i => x0 + i*slot, () => slot, y1, y0);
+  const bd = tempOverlay(d, i => x0 + (i+.5)*slot, y1, y0, x1);
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
-      aria-label="Energy per period by unit, shaded by outdoor temperature">
-    ${bd.svg}${grid}${cols}${xlabels}
+      aria-label="Energy per period by unit, with outdoor temperature overlaid">
+    ${grid}${cols}${xlabels}${bd.svg}
     <line class="baseline" x1="${x0}" x2="${x1}" y1="${y0}" y2="${y0}"></line>
     <text class="tick" x="${x0-8}" y="${y1-2}" text-anchor="end">kWh</text></svg>`;
 
@@ -588,14 +600,14 @@ function renderTrend(d) {
   document.getElementById('trendSub').textContent =
     `kWh per ${per}, stacked by unit, shaded by outdoor temperature. `
   + `Built from the ${d.resolution}.`;
-  tempLegend = tempScaleLegend(bd.lo, bd.hi);
+  tempLegend = tempScaleLegend();
   if (bd.at) outdoorAt = bd.at;
   setLegend();
 }
 
 function renderLines(d, el, g, setLegend) {
   const s = d.series, names = Object.keys(s.units), t = s.t;
-  const {W,H,padL,padR,padT,padB} = g;
+  const {W,H,padL,padT,padB} = g; const padR = state.showTemp ? 44 : g.padR;
   const maxW = Math.max(10, ...names.flatMap(n => s.units[n].filter(v => v!=null)));
   const yMax = Math.ceil(maxW/100)*100 || 100;
   const X = i => padL + (i/(t.length-1))*(W-padL-padR);
@@ -617,14 +629,13 @@ function renderLines(d, el, g, setLegend) {
       stroke-linejoin="round" stroke-linecap="round"></path>`;
   }).join('');
 
-  const step2 = t.length>1 ? (W-padL-padR)/(t.length-1) : (W-padL-padR);
-  const bd = tempBackdrop(d, i => X(i)-step2/2, () => step2, padT, H-padB);
-  tempLegend = tempScaleLegend(bd.lo, bd.hi);
+  const bd = tempOverlay(d, i => X(i), padT, H-padB, W-padR);
+  tempLegend = tempScaleLegend();
   outdoorAt = bd.at || null;
   if (setLegend) setLegend();
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
-      aria-label="Power draw over time, shaded by outdoor temperature">
-    ${bd.svg}${grid}${times}
+      aria-label="Power draw over time, with outdoor temperature overlaid">
+    ${grid}${times}
     <line class="baseline" x1="${padL}" x2="${W-padR}" y1="${Y(0)}" y2="${Y(0)}"></line>
     ${paths}
     <g id="cross" style="display:none">
@@ -632,6 +643,7 @@ function renderLines(d, el, g, setLegend) {
       ${names.map((nm)=>`<circle r="4" fill="${colorFor(nm)}" stroke="var(--surface-1)"
         stroke-width="2"></circle>`).join('')}
     </g>
+    ${bd.svg}
     <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
       fill="transparent" id="hit"></rect>
     <text class="tick" x="${padL-8}" y="${padT-2}" text-anchor="end">W</text></svg>`;
@@ -654,7 +666,11 @@ function renderLines(d, el, g, setLegend) {
     showTip(e, `<b>${clock(t[i])}</b>` + rows.map(r =>
       `<div class="tr"><span><i style="display:inline-block;width:8px;height:8px;
         border-radius:2px;margin-right:6px;background:${colorFor(r.nm)}"></i>${r.nm}</span>
-        <span>${fmt(r.v)} W</span></div>`).join(''));
+        <span>${fmt(r.v)} W</span></div>`).join('')
+      + (outdoorAt && outdoorAt(t[i])!=null
+          ? `<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);
+             padding-top:5px"><span>Outdoor</span><span>${fmt(outdoorAt(t[i]),1)}°F</span></div>`
+          : ''));
   });
   el.querySelector('#hit').addEventListener('mouseleave', () => {
     cross.style.display='none'; hideTip();

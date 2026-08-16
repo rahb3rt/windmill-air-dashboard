@@ -48,16 +48,20 @@ only the initial default.
 
 ## Temperature
 
-Outdoor temperature is overlaid on the energy chart as a background wash —
-warmer periods shade darker — and charted properly against the average indoor
-reading in its own panel below, which also reports the correlation between
-outdoor temperature and energy use for the selected range.
+Outdoor temperature is drawn over the energy chart on its own right-hand axis,
+and charted properly against the average indoor reading in its own panel below,
+which also reports the correlation between outdoor temperature and energy use
+for the selected range. Click **Outdoor °F** in the legend to hide the line.
 
-The overlay is deliberately **not** a second y-axis. With two scales, whether
-the curves appear to track each other is decided by the scaling rather than the
-data, and the same numbers can be made to show energy leading or lagging
-temperature. Encoding temperature as background intensity keeps one axis, so no
-apparent crossing can be manufactured; exact values live in the panel below. Indoor history
+A second y-axis does mean the apparent gap between the curves is partly a choice
+of ranges, so the line is drawn to be *followed*, not measured against the bars:
+thin, dashed, in neutral ink so it never borrows a series colour and cannot be
+mistaken for a unit. Its scale is rounded to whole 5 °F steps rather than fitted
+tightly to the data, so its position stays comparable as the range changes, and
+exact values live in the panel below.
+
+(An earlier version encoded temperature as a background wash, which avoids the
+second scale entirely but proved too faint to follow.) Indoor history
 is backfilled from the Room Temperature datastream; outdoor comes from Open-Meteo
 hourly archive, cached permanently in SQLite.
 
