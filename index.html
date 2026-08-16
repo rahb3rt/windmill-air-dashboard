@@ -213,6 +213,7 @@ const PRESETS = [['today','Today'],['24h','24h'],['7d','7 days'],['30d','30 days
                  ['mtd','Month'],['ytd','Year'],['12mo','12 mo']];
 
 let state = { range:'today', from:null, to:null, data:null };
+let tempLegend = '', outdoorAt = null;
 
 const fmt = (n,d=0) => n==null ? '–' :
   Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -338,22 +339,64 @@ function renderBars(d) {
         + `${(d.totals.estimated_units||[]).join(', ')} ran without reporting.` : '');
 }
 
+/* Outdoor temperature as a background wash.
+
+   Deliberately NOT a second y-axis: with two scales, whether the curves appear
+   to track each other is set by the scaling, not the data. Encoding temperature
+   as background intensity keeps one axis and cannot manufacture a crossing. */
+function tempBackdrop(d, xOf, wOf, yTop, yBot) {
+  const tp = d.temps;
+  if (!tp || !tp.t.length) return {svg:'', lo:null, hi:null};
+  const byHour = new Map();
+  tp.t.forEach((ts,i) => { if (tp.outdoor[i]!=null) byHour.set(ts, tp.outdoor[i]); });
+  if (!byHour.size) return {svg:'', lo:null, hi:null};
+  const at = ts => {
+    if (byHour.has(ts)) return byHour.get(ts);
+    let best=null, bd=Infinity;
+    for (const [k,v] of byHour) { const dd=Math.abs(k-ts); if (dd<bd){bd=dd;best=v;} }
+    return bd <= (tp.bucket||3600)*1.5 ? best : null;
+  };
+  const vals=[...byHour.values()], lo=Math.min(...vals), hi=Math.max(...vals);
+  const c = css('--s2');
+  const rects = d.series.t.map((ts,i) => {
+    const v = at(ts); if (v==null) return '';
+    const n = hi>lo ? (v-lo)/(hi-lo) : .5;
+    return `<rect x="${xOf(i)}" y="${yTop}" width="${wOf(i)}" height="${yBot-yTop}"
+      fill="${c}" fill-opacity="${(0.04 + n*0.20).toFixed(3)}"></rect>`;
+  }).join('');
+  return {svg:`<g aria-hidden="true">${rects}</g>`, lo, hi, at};
+}
+
+function tempScaleLegend(lo, hi) {
+  if (lo==null) return '';
+  const c = css('--s2');
+  const steps = Array.from({length:5},(_,i)=>i/4);
+  return `<span style="display:inline-flex;align-items:center;gap:6px">
+    <span>${fmt(lo,0)}°F</span>
+    ${steps.map(n=>`<i style="width:14px;height:9px;border-radius:0;background:${c};
+      opacity:${(0.04+n*0.20)/0.24}"></i>`).join('')}
+    <span>${fmt(hi,0)}°F outdoor</span></span>`;
+}
+
 /* ---------------- trend: stacked kWh bars, or watt lines ---------------- */
 function renderTrend(d) {
   const el = document.getElementById('trendChart');
   const s = d.series, names = Object.keys(s.units);
-  document.getElementById('legend').innerHTML = names.map((n,i) =>
-    `<span><i style="background:${colorOf(i)}"></i>${n}</span>`).join('');
+  const setLegend = () => document.getElementById('legend').innerHTML =
+    names.map((n,i) => `<span><i style="background:${colorOf(i)}"></i>${n}</span>`).join('')
+    + (tempLegend ? tempLegend : '');
 
   if (!s.t.length || (s.unit==='W' && s.t.length < 2)) {
+    tempLegend = ''; setLegend();
     el.innerHTML = `<div class="empty">No data in this range yet.</div>`;
     document.getElementById('trendSub').textContent = '';
     return;
   }
+  tempLegend = '';
   const W = 900, H = 280, padL = 52, padR = 12, padT = 10, padB = 28;
   const x0 = padL, x1 = W - padR, y0 = H - padB, y1 = padT;
 
-  if (s.unit === 'W') return renderLines(d, el, {W,H,padL,padR,padT,padB});
+  if (s.unit === 'W') return renderLines(d, el, {W,H,padL,padR,padT,padB}, setLegend);
 
   /* stacked bars: one bucket per column */
   const totals = s.t.map((_,i) => names.reduce((a,n) => a + (s.units[n][i]||0), 0));
@@ -388,9 +431,11 @@ function renderTrend(d) {
       text-anchor="middle">${s.bucket >= 86400 ? dayLbl(ts)
         : dayLbl(ts)+' '+clock(ts)}</text>`).join('');
 
+  const slot = (x1-x0)/s.t.length;
+  const bd = tempBackdrop(d, i => x0 + i*slot, () => slot, y1, y0);
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
-      aria-label="Energy per period by unit">
-    ${grid}${cols}${xlabels}
+      aria-label="Energy per period by unit, shaded by outdoor temperature">
+    ${bd.svg}${grid}${cols}${xlabels}
     <line class="baseline" x1="${x0}" x2="${x1}" y1="${y0}" y2="${y0}"></line>
     <text class="tick" x="${x0-8}" y="${y1-2}" text-anchor="end">kWh</text></svg>`;
 
@@ -404,17 +449,23 @@ function renderTrend(d) {
         height:8px;border-radius:2px;margin-right:6px;background:${colorOf(r.k)}"></i>${r.n}</span>
         <span>${fmt(r.v,2)} kWh</span></div>`).join('') +
       `<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);padding-top:5px">
-        <span>Total</span><span>${fmt(totals[i],2)} kWh · $${fmt(totals[i]*d.rate,2)}</span></div>`));
+        <span>Total</span><span>${fmt(totals[i],2)} kWh · $${fmt(totals[i]*d.rate,2)}</span></div>`
+      + (outdoorAt && outdoorAt(s.t[i])!=null
+          ? `<div class="tr"><span>Outdoor</span><span>${fmt(outdoorAt(s.t[i]),1)}°F</span></div>` : '')));
     g.addEventListener('mouseleave', hideTip);
   });
 
   const per = s.bucket>=604800 ? 'week' : s.bucket>=86400 ? 'day' : s.bucket>=21600 ? '6 hours' : 'hour';
   document.getElementById('trendTitle').textContent = `Energy over time — ${d.range.label}`;
   document.getElementById('trendSub').textContent =
-    `kWh per ${per}, stacked by unit. Built from the ${d.resolution}.`;
+    `kWh per ${per}, stacked by unit, shaded by outdoor temperature. `
+  + `Built from the ${d.resolution}.`;
+  tempLegend = tempScaleLegend(bd.lo, bd.hi);
+  if (bd.at) outdoorAt = bd.at;
+  setLegend();
 }
 
-function renderLines(d, el, g) {
+function renderLines(d, el, g, setLegend) {
   const s = d.series, names = Object.keys(s.units), t = s.t;
   const {W,H,padL,padR,padT,padB} = g;
   const maxW = Math.max(10, ...names.flatMap(n => s.units[n].filter(v => v!=null)));
@@ -438,8 +489,14 @@ function renderLines(d, el, g) {
       stroke-linejoin="round" stroke-linecap="round"></path>`;
   }).join('');
 
-  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Power draw over time">
-    ${grid}${times}
+  const step2 = t.length>1 ? (W-padL-padR)/(t.length-1) : (W-padL-padR);
+  const bd = tempBackdrop(d, i => X(i)-step2/2, () => step2, padT, H-padB);
+  tempLegend = tempScaleLegend(bd.lo, bd.hi);
+  outdoorAt = bd.at || null;
+  if (setLegend) setLegend();
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Power draw over time, shaded by outdoor temperature">
+    ${bd.svg}${grid}${times}
     <line class="baseline" x1="${padL}" x2="${W-padR}" y1="${Y(0)}" y2="${Y(0)}"></line>
     ${paths}
     <g id="cross" style="display:none">

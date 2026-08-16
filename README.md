@@ -48,9 +48,16 @@ only the initial default.
 
 ## Temperature
 
-The page charts outdoor temperature against the average indoor reading across
-units, on the same time axis as the energy chart, and reports the correlation
-between outdoor temperature and energy use for the selected range. Indoor history
+Outdoor temperature is overlaid on the energy chart as a background wash —
+warmer periods shade darker — and charted properly against the average indoor
+reading in its own panel below, which also reports the correlation between
+outdoor temperature and energy use for the selected range.
+
+The overlay is deliberately **not** a second y-axis. With two scales, whether
+the curves appear to track each other is decided by the scaling rather than the
+data, and the same numbers can be made to show energy leading or lagging
+temperature. Encoding temperature as background intensity keeps one axis, so no
+apparent crossing can be manufactured; exact values live in the panel below. Indoor history
 is backfilled from the Room Temperature datastream; outdoor comes from Open-Meteo
 hourly archive, cached permanently in SQLite.
 
