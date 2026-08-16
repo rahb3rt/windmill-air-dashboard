@@ -59,13 +59,28 @@ def runtime_history(device):
     return sorted((int(l.split(",")[0]), float(l.split(",")[1])) for l in lines[1:])
 
 
-def find_gaps(con, unit, reference):
-    """Hours the reference has and the unit does not."""
+def reference_shape(con, unit, reference=None):
+    """{hour: wh} used only to spread a known total across a gap.
+
+    A named reference unit is used when given. Otherwise the mean across every
+    other unit that reported in that hour, which covers gaps no single sibling
+    spans.
+    """
+    if reference:
+        return {r["hour"]: (r["wh"] or 0) for r in con.execute(
+            "SELECT hour, wh FROM hourly WHERE unit=?", (reference,))}
+    return {r["hour"]: (r["wh"] or 0) for r in con.execute(
+        "SELECT hour, AVG(wh) wh FROM hourly WHERE unit<>? GROUP BY hour", (unit,))}
+
+
+def find_gaps(con, unit, reference=None):
+    """Hours the reference covers, after this unit existed, that it lacks."""
     have = {r["hour"] for r in con.execute(
         "SELECT hour FROM hourly WHERE unit=?", (unit,))}
-    ref = {r["hour"]: (r["wh"] or 0) for r in con.execute(
-        "SELECT hour, wh FROM hourly WHERE unit=?", (reference,))}
-    return sorted(h for h in ref if h not in have), ref
+    ref = reference_shape(con, unit, reference)
+    activated = store.activations(con).get(unit)
+    return sorted(h for h in ref
+                  if h not in have and (not activated or h >= activated)), ref
 
 
 def segment(run, now_ts, now_runtime, gap_after=2 * 3600):
@@ -89,11 +104,12 @@ def segment(run, now_ts, now_runtime, gap_after=2 * 3600):
     return reported, gaps
 
 
-def fill(con, unit, reference, dry_run=False):
+def fill(con, unit, reference=None, dry_run=False):
     device = next((d for d in config.DEVICES if d["name"] == unit), None)
-    ref_dev = next((d for d in config.DEVICES if d["name"] == reference), None)
-    if not device or not ref_dev:
-        raise SystemExit(f"unknown unit: {unit if not device else reference}")
+    if not device:
+        raise SystemExit(f"unknown unit: {unit}")
+    if reference and not any(d["name"] == reference for d in config.DEVICES):
+        raise SystemExit(f"unknown reference: {reference}")
 
     missing, ref = find_gaps(con, unit, reference)
     if not missing:
@@ -148,7 +164,7 @@ def fill(con, unit, reference, dry_run=False):
         con.commit()
 
     fmt = lambda t: time.strftime("%Y-%m-%d %H:%M", time.localtime(t))
-    return {"unit": unit, "reference": reference,
+    return {"unit": unit, "reference": reference or "house average",
             "status": "would fill" if dry_run else "filled",
             "hours": len(rows), "kwh": round(total_wh / 1000, 2),
             "gap_runtime_h": round(total_run, 1),
@@ -159,8 +175,9 @@ def fill(con, unit, reference, dry_run=False):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("unit")
-    p.add_argument("--reference", required=True,
-                   help="comparable unit whose hourly shape spreads the total")
+    p.add_argument("--reference",
+                   help="comparable unit whose hourly shape spreads the total "
+                        "(default: mean of all other units)")
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
     r = fill(store.connect(), args.unit, args.reference, args.dry_run)

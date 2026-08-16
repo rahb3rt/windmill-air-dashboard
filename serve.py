@@ -18,6 +18,7 @@ import backfill
 import blynk
 import config
 import energy
+import repair
 import store
 
 PORT = 8787
@@ -75,20 +76,12 @@ def maintainer():
                     store.save_device(con, device["name"], info["device_id"],
                                       info["activated_at"])
 
-            t0, t1, _ = energy.resolve_range("30d")
-            activated = store.activations(con)
-            for device in config.DEVICES:
-                name = device["name"]
-                start = max(t0, activated.get(name, t0))
-                expected = max(0.0, (min(t1, time.time()) - start) / 3600)
-                if expected < 1:
-                    continue
-                if store.covered_hours(con, name, start, t1) / expected >= 0.5:
-                    continue
-                with _lock:
-                    r = backfill.fetch_power(con, device, force=True)
-                print(f"backfill retry {name}: {r['status']} "
-                      f"{r.get('detail') or str(r['rows']) + ' hours'}")
+            with _lock:
+                for r in repair.run(con):
+                    if r["status"] != "complete" and (r["recovered"] or r["estimated"]):
+                        print(f"repair {r['unit']}: {r['recovered']}h recovered, "
+                              f"{r['estimated']}h reconstructed, "
+                              f"{r['missing_after']}h still missing")
             con.close()
         except Exception as exc:
             print(f"maintainer failed: {exc}")
@@ -151,6 +144,16 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 con.close()
 
+        elif url.path == "/api/repair":
+            con = store.connect()
+            try:
+                with _lock:
+                    self._json({"results": repair.run(con, one("dry") == "1")})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 500)
+            finally:
+                con.close()
+
         elif url.path == "/api/rate":
             con = store.connect()
             try:
@@ -181,7 +184,9 @@ if __name__ == "__main__":
     con.close()
 
     threading.Thread(target=sampler, daemon=True).start()
-    print(f"{len(config.DEVICES)} units | sampling every {SAMPLE_INTERVAL}s")
+    threading.Thread(target=maintainer, daemon=True).start()
+    print(f"{len(config.DEVICES)} units | sampling every {SAMPLE_INTERVAL}s | "
+          f"repairing gaps hourly")
     print(f"dashboard -> http://localhost:{PORT}")
     try:
         ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

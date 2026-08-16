@@ -54,6 +54,32 @@ between outdoor temperature and energy use for the selected range. Indoor histor
 is backfilled from the Room Temperature datastream; outdoor comes from Open-Meteo
 hourly archive, cached permanently in SQLite.
 
+## Closing gaps in the history
+
+```bash
+python3 repair.py --dry-run     # report what it would do
+python3 repair.py               # fix
+```
+
+`serve.py` runs this hourly on its own, and the **Repair gaps** button triggers
+it on demand. Gaps appear for two reasons that need opposite treatment:
+
+- **The export quota was exhausted when we asked.** The data still exists on
+  Windmill's side, so retrying recovers it *exactly*. This is never estimated —
+  it waits.
+- **The unit stopped reporting while still running.** No retry will ever produce
+  it; the cloud never received it. Only the unit's own runtime counter can
+  recover it.
+
+So repair always attempts a real fetch first and only reconstructs what a fetch
+cannot return. Leave `serve.py` running and gaps close by themselves as quotas
+reset and units reconnect.
+
+It also refuses to reconstruct when the unit genuinely wasn't running — if the
+cumulative runtime counter didn't advance across the gap, the unit was off and
+zero is the correct answer. The one thing this misses is a unit that was powered
+but idle while disconnected; its standby draw (tens of watts) goes unrecorded.
+
 ## Reconstructing hours a unit ran without reporting
 
 ```bash

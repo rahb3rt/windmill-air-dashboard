@@ -137,8 +137,9 @@
     <span class="field" style="margin-left:auto">
       $<input type="number" id="rate" step="0.001" min="0"> / kWh
     </span>
-    <button class="ghost" id="backfillBtn" title="Pull up to 30 days of history from Windmill">
-      Backfill</button>
+    <button class="ghost" id="repairBtn"
+      title="Fetch any history Windmill still has, then reconstruct only hours a unit ran without reporting">
+      Repair gaps</button>
   </div>
 
   <div class="stats" id="stats"></div>
@@ -253,14 +254,18 @@ document.getElementById('rate').addEventListener('change', async e => {
   await fetch('/api/rate?set=' + v);
   load();
 });
-document.getElementById('backfillBtn').addEventListener('click', async e => {
-  e.target.disabled = true; e.target.textContent = 'Backfilling…';
+document.getElementById('repairBtn').addEventListener('click', async e => {
+  e.target.disabled = true; e.target.textContent = 'Repairing…';
   try {
-    const r = await (await fetch('/api/backfill')).json();
-    const ok = (r.results||[]).filter(x => x.status==='ok').length;
-    e.target.textContent = `${ok}/${(r.results||[]).length} updated`;
+    const r = await (await fetch('/api/repair')).json();
+    const res = r.results || [];
+    const real = res.reduce((a,x) => a + (x.recovered||0), 0);
+    const est  = res.reduce((a,x) => a + (x.estimated||0), 0);
+    const left = res.reduce((a,x) => a + (x.missing_after||0), 0);
+    e.target.textContent = real||est ? `+${real}h real, +${est}h est`
+                                     : (left ? `${left}h still missing` : 'No gaps');
   } catch { e.target.textContent = 'Failed'; }
-  setTimeout(() => { e.target.disabled = false; e.target.textContent = 'Backfill'; }, 2600);
+  setTimeout(() => { e.target.disabled = false; e.target.textContent = 'Repair gaps'; }, 4000);
   load();
 });
 
