@@ -84,6 +84,20 @@
     border-radius:8px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; }
   .ghost:hover { background:var(--accent-wash); color:var(--text-primary); }
 
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+  .chip { display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+          border:1px solid var(--border); background:var(--surface-1);
+          color:var(--text-secondary); border-radius:20px; padding:5px 12px 5px 9px;
+          font:inherit; font-size:12.5px; line-height:1; transition:opacity .12s; }
+  .chip:hover { background:var(--accent-wash); color:var(--text-primary); }
+  .chip i { width:9px; height:9px; border-radius:2px; flex:none; }
+  .chip[aria-pressed="false"] { opacity:.42; }
+  .chip[aria-pressed="false"] i { background:var(--text-muted) !important; }
+  .chip .kwh { color:var(--text-muted); font-variant-numeric:tabular-nums; }
+  .bar, .col rect[data-unit] { cursor:pointer; }
+  .legend span[data-unit] { cursor:pointer; user-select:none; }
+  .legend span[data-unit]:hover { color:var(--text-primary); }
+
   .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:2px;
            background:var(--border); border:1px solid var(--border); border-radius:12px;
            overflow:hidden; }
@@ -153,10 +167,13 @@
     <span class="field" style="margin-left:auto">
       $<input type="number" id="rate" step="0.001" min="0"> / kWh
     </span>
+    <button class="ghost" id="clearFilter" hidden>Show all units</button>
     <button class="ghost" id="repairBtn"
       title="Fetch any history Windmill still has, then reconstruct only hours a unit ran without reporting">
       Repair gaps</button>
   </div>
+
+  <div class="chips" id="unitFilter"></div>
 
   <div class="grid">
     <div class="stats span12" id="stats"></div>
@@ -236,8 +253,70 @@ const PIN_FMT = {
 const PRESETS = [['today','Today'],['24h','24h'],['7d','7 days'],['30d','30 days'],
                  ['mtd','Month'],['ytd','Year'],['12mo','12 mo']];
 
-let state = { range:'today', from:null, to:null, data:null };
+let state = { range:'today', from:null, to:null, data:null, hidden:new Set() };
 let tempLegend = '', outdoorAt = null;
+
+/* Colour follows the unit, never its position in the filtered list, so hiding
+   one never repaints the others. Built once from the server's full ordering. */
+let COLOR_IDX = new Map();
+const colorFor = name => colorOf(COLOR_IDX.get(name) ?? 0);
+
+function toggleUnit(name, isolate) {
+  const all = [...COLOR_IDX.keys()];
+  if (isolate) {
+    const onlyThis = state.hidden.size === all.length - 1 && !state.hidden.has(name);
+    state.hidden = onlyThis ? new Set() : new Set(all.filter(n => n !== name));
+  } else {
+    state.hidden.has(name) ? state.hidden.delete(name) : state.hidden.add(name);
+    if (state.hidden.size === all.length) state.hidden.clear();   // never blank
+  }
+  rerender();
+}
+
+/* Filtering is a view over the payload: units are dropped and the totals that
+   depend on them recomputed, so every panel agrees with the chips. */
+function filtered(d) {
+  if (!state.hidden.size) return d;
+  const units = d.units.filter(u => !state.hidden.has(u.name));
+  const kwh = units.reduce((a,u) => a + (u.kwh || 0), 0);
+  const v = { ...d,
+    units: units.map(u => ({ ...u,
+      share: kwh ? Math.round(1000 * (u.kwh || 0) / kwh) / 10 : null })),
+    totals: { ...d.totals,
+      kwh: Math.round(kwh * 1000) / 1000,
+      cost: Math.round(kwh * d.rate * 100) / 100,
+      watts: units.reduce((a,u) => a + (u.watts || 0), 0),
+      cooling_min: units.reduce((a,u) => a + (u.cooling_min || 0), 0),
+      est_kwh: Math.round(units.reduce((a,u) => a + (u.est_kwh || 0), 0) * 1000) / 1000,
+      online: units.filter(u => u.online).length,
+      count: units.length,
+      daily_avg_kwh: Math.round(kwh / Math.max(1, d.range.span/86400) * 1000) / 1000,
+    },
+    series: { ...d.series, units: Object.fromEntries(
+      Object.entries(d.series.units).filter(([n]) => !state.hidden.has(n))) },
+  };
+  return v;
+}
+
+function renderChips(d) {
+  const el = document.getElementById('unitFilter');
+  el.innerHTML = d.units.map(u => {
+    const on = !state.hidden.has(u.name);
+    return `<button class="chip" data-unit="${u.name}" aria-pressed="${on}"
+      title="Click to toggle · double-click to show only this one">
+      <i style="background:${colorFor(u.name)}"></i>${u.name}
+      <span class="kwh">${u.kwh==null ? '–' : fmt(u.kwh,1)+' kWh'}</span></button>`;
+  }).join('');
+  document.getElementById('clearFilter').hidden = !state.hidden.size;
+}
+
+function rerender() {
+  if (!state.data) return;
+  const d = filtered(state.data);
+  renderChips(state.data);
+  renderStats(d); renderBars(d); renderTrend(d); renderTemps(d);
+  renderCards(d); renderTable(d);
+}
 
 const fmt = (n,d=0) => n==null ? '–' :
   Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -279,6 +358,19 @@ document.getElementById('rate').addEventListener('change', async e => {
   await fetch('/api/rate?set=' + v);
   load();
 });
+document.getElementById('unitFilter').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (b) toggleUnit(b.dataset.unit, false);
+});
+document.getElementById('unitFilter').addEventListener('dblclick', e => {
+  const b = e.target.closest('.chip'); if (b) toggleUnit(b.dataset.unit, true);
+});
+document.getElementById('clearFilter').addEventListener('click', () => {
+  state.hidden.clear(); rerender();
+});
+document.getElementById('legend').addEventListener('click', e => {
+  const s = e.target.closest('[data-unit]'); if (s) toggleUnit(s.dataset.unit, false);
+});
+
 document.getElementById('repairBtn').addEventListener('click', async e => {
   e.target.disabled = true; e.target.textContent = 'Repairing…';
   try {
@@ -312,7 +404,7 @@ function renderBars(d) {
   const el = document.getElementById('barChart');
   const units = [...d.units].sort((a,b) => (b.kwh ?? -1) - (a.kwh ?? -1));
   const max = Math.max(...units.map(u => u.kwh ?? 0), .001);
-  const idx = new Map(d.units.map((u,i) => [u.name,i]));
+
   const W = Math.max(300, el.clientWidth || 900);
   const wide = W > 560;
   const rowH = wide ? 34 : 30, padL = wide ? 138 : 104, padR = wide ? 150 : 58;
@@ -320,7 +412,7 @@ function renderBars(d) {
   const H = units.length * rowH + 8;
 
   const bars = units.map((u,i) => {
-    const y = i*rowH + 6, c = colorOf(idx.get(u.name));
+    const y = i*rowH + 6, c = colorFor(u.name);
     if (!u.complete) return `<g class="bar" data-name="${u.name}">
       <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
       <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end"
@@ -356,10 +448,11 @@ function renderBars(d) {
       <div class="tr"><span>Compressor</span><span>${dur(u.cooling_min)}</span></div>
       <div class="tr"><span>Peak draw</span><span>${fmt(u.peak_w)} W</span></div>`));
     g.addEventListener('mouseleave', hideTip);
+    g.addEventListener('click', () => { hideTip(); toggleUnit(u.name, true); });
   });
 
   document.getElementById('energyTitle').textContent = `Energy by unit — ${d.range.label}`;
-  const inc = d.totals.incomplete || [];
+  const inc = (d.totals.incomplete || []).filter(n => !state.hidden.has(n));
   document.getElementById('energySub').textContent =
     `${fmt(d.totals.kwh,2)} kWh total, $${fmt(d.totals.cost,2)}. Ranked highest first.`
     + (inc.length ? `  ${inc.join(', ')} ${inc.length>1?'have':'has'} no history for this `
@@ -413,7 +506,7 @@ function renderTrend(d) {
   const el = document.getElementById('trendChart');
   const s = d.series, names = Object.keys(s.units);
   const setLegend = () => document.getElementById('legend').innerHTML =
-    names.map((n,i) => `<span><i style="background:${colorOf(i)}"></i>${n}</span>`).join('')
+    names.map(n => `<span data-unit="${n}"><i style="background:${colorFor(n)}"></i>${n}</span>`).join('')
     + (tempLegend ? tempLegend : '');
 
   if (!s.t.length || (s.unit==='W' && s.t.length < 2)) {
@@ -449,7 +542,7 @@ function renderTrend(d) {
       const top = yOf(acc+v), bot = yOf(acc); acc += v;
       const h = Math.max(1, bot-top-2);   // 2px surface gap between segments
       return `<rect x="${cx-bw/2}" y="${top}" width="${bw}" height="${h}"
-        rx="${h>4?2:0}" fill="${colorOf(k)}"></rect>`;
+        rx="${h>4?2:0}" fill="${colorFor(n)}" data-unit="${n}"></rect>`;
     }).join('');
     return `<g class="col" data-i="${i}">
       <rect x="${cx-((x1-x0)/s.t.length)/2}" y="${y1}" width="${(x1-x0)/s.t.length}"
@@ -484,6 +577,10 @@ function renderTrend(d) {
       + (outdoorAt && outdoorAt(s.t[i])!=null
           ? `<div class="tr"><span>Outdoor</span><span>${fmt(outdoorAt(s.t[i]),1)}°F</span></div>` : '')));
     g.addEventListener('mouseleave', hideTip);
+    g.addEventListener('click', ev => {
+      const seg = ev.target.closest('rect[data-unit]');
+      if (seg) { hideTip(); toggleUnit(seg.dataset.unit, true); }
+    });
   });
 
   const per = s.bucket>=604800 ? 'week' : s.bucket>=86400 ? 'day' : s.bucket>=21600 ? '6 hours' : 'hour';
@@ -516,7 +613,7 @@ function renderLines(d, el, g, setLegend) {
       if (v==null) { pen=false; return; }
       dstr += (pen?'L':'M') + X(j).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; pen=true;
     });
-    return `<path d="${dstr}" fill="none" stroke="${colorOf(i)}" stroke-width="2"
+    return `<path d="${dstr}" fill="none" stroke="${colorFor(nm)}" stroke-width="2"
       stroke-linejoin="round" stroke-linecap="round"></path>`;
   }).join('');
 
@@ -532,7 +629,7 @@ function renderLines(d, el, g, setLegend) {
     ${paths}
     <g id="cross" style="display:none">
       <line class="baseline" y1="${padT}" y2="${H-padB}" stroke-dasharray="3 3"></line>
-      ${names.map((_,i)=>`<circle r="4" fill="${colorOf(i)}" stroke="var(--surface-1)"
+      ${names.map((nm)=>`<circle r="4" fill="${colorFor(nm)}" stroke="var(--surface-1)"
         stroke-width="2"></circle>`).join('')}
     </g>
     <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
@@ -556,7 +653,7 @@ function renderLines(d, el, g, setLegend) {
     }).filter(Boolean).sort((a,b)=>b.v-a.v);
     showTip(e, `<b>${clock(t[i])}</b>` + rows.map(r =>
       `<div class="tr"><span><i style="display:inline-block;width:8px;height:8px;
-        border-radius:2px;margin-right:6px;background:${colorOf(r.k)}"></i>${r.nm}</span>
+        border-radius:2px;margin-right:6px;background:${colorFor(r.nm)}"></i>${r.nm}</span>
         <span>${fmt(r.v)} W</span></div>`).join(''));
   });
   el.querySelector('#hit').addEventListener('mouseleave', () => {
@@ -577,7 +674,7 @@ function renderCards(d) {
     const st = off ? 'Offline' : (u.on ? `${u.mode} · fan ${u.fan}` : 'Off');
     const mostly = u.complete && u.est_share > 50;
     return `<div class="card" style="${off?'opacity:.55':''}">
-      <div class="top"><span class="swatch" style="background:${colorOf(i)}"></span>
+      <div class="top"><span class="swatch" style="background:${colorFor(u.name)}"></span>
         <span class="nm">${u.name}</span><span class="pill">${st}</span></div>
       <div class="temps"><span class="now">${u.temp==null?'–':fmt(u.temp)}°</span>
         <span class="tgt">set to ${u.target==null?'–':fmt(u.target)}°</span></div>
@@ -876,6 +973,10 @@ async function load() {
     const d = await (await fetch('/api/summary?'+q)).json();
     if (d.error) throw new Error(d.error);
     state.data = d;
+    if (COLOR_IDX.size !== d.units.length)
+      COLOR_IDX = new Map(d.units.map((u,i) => [u.name, i]));
+    state.hidden = new Set([...state.hidden].filter(n => COLOR_IDX.has(n)));
+    const view = filtered(d);
     document.querySelectorAll('#presets button').forEach(b =>
       b.setAttribute('aria-pressed', String(b.dataset.range === state.range)));
     const rateEl = document.getElementById('rate');
@@ -884,11 +985,13 @@ async function load() {
       document.getElementById('from').value = isoDay(d.range.from);
       document.getElementById('to').value = isoDay(d.range.to);
     }
-    renderStats(d); renderBars(d); renderTrend(d); renderTemps(d);
-    renderCards(d); renderTable(d);
+    renderChips(d);
+    renderStats(view); renderBars(view); renderTrend(view); renderTemps(view);
+    renderCards(view); renderTable(view);
     fetch('/api/comparison').then(r => r.json()).then(renderCompare).catch(() => {});
     document.getElementById('meta').innerHTML =
-      `<span class="dot"></span> live · updated ${clock(d.updated)}`;
+      `<span class="dot"></span> live · updated ${clock(d.updated)}`
+      + (state.hidden.size ? ` · showing ${view.units.length} of ${d.units.length} units` : '');
     document.getElementById('coverage').textContent = d.coverage.start
       ? `History starts ${new Date(d.coverage.start*1000).toLocaleString()}. `
       + `Windmill retains 30 days; everything older accumulates here only while serve.py runs.`
@@ -905,7 +1008,7 @@ addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
     if (!state.data) return;
-    const d = state.data;
+    const d = filtered(state.data);
     renderBars(d); renderTrend(d); renderTemps(d);
   }, 160);
 });
