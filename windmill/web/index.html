@@ -2000,13 +2000,21 @@ function renderLive(d) {
   document.getElementById('umPinsSub').textContent =
     `${L.pins.length} datastreams, read live. ${named.length} are identified; `
     + `the other ${rest.length} are undocumented and shown raw — they are still `
-    + `what the unit is sending, so they are not hidden.`;
+    + `what the unit is sending, so they are not hidden. Where a value has a `
+    + `name, the raw number it was sent as is in brackets after it.`;
   document.getElementById('umPins').innerHTML = `<table><thead><tr>
       <th>Datastream</th><th>Pin</th><th>Value</th></tr></thead><tbody>
     ${named.concat(rest).map(p => `<tr${p.name ? '' : ' class="unmapped"'}>
       <td class="key">${p.name || '<span class="muted">unidentified</span>'}</td>
       <td><code>${p.pin.toUpperCase()}</code></td>
-      <td>${p.shown}${p.unit ? ' ' + p.unit : ''}</td></tr>`).join('')}
+      <td>${p.shown}${p.unit ? ' ' + p.unit : ''}${
+        // The word and the number both, where a word was substituted at all.
+        // Mode and fan speed are sent as integers, and the raw value is what
+        // you need when comparing against an export or the API. Not on values
+        // that were only reformatted -- "40 W (40.0)" tells you nothing.
+        isNaN(parseFloat(p.shown)) && p.value !== null
+          ? ` <span class="muted">(${p.value})</span>` : ''
+      }</td></tr>`).join('')}
   </tbody></table>`;
 }
 
