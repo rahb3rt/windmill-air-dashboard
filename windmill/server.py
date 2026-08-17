@@ -882,6 +882,10 @@ KEEP_MAX_PER_HOUR = 4
 #: Leave a setting alone for this long after it was set, so the loop does not
 #: react to a reading the unit has not had time to update.
 KEEP_GRACE_S = 90
+#: How stale a reading may be and still say what a unit is set to. Every pin is
+#: rewritten at least once a keyframe, so twice that means the unit has gone
+#: quiet rather than simply not changed.
+ENFORCE_FRESH_S = 2 * store.KEYFRAME_S
 #: How long a change you made yourself outranks the unit's default. Long enough
 #: to be useful, short enough that the units go back to behaving on their own.
 OVERRIDE_S = 4 * 3600
@@ -907,9 +911,24 @@ def enforce_defaults(con):
         wanted = store.unit_defaults(con, unit)
         if not wanted or guard.held(con, unit) or store.settling_until(con, unit, now):
             continue
-        fresh = now - 3 * SAMPLE_INTERVAL
+        # Readings are written on change, so a unit sitting wrongly on Fan
+        # records nothing at all -- demanding a row from the last minute meant
+        # this only ever fired during the moment a setting was changing, which
+        # is the one time it should keep its hands off. Values are step
+        # functions held forward instead, and what has to be recent is evidence
+        # the unit is still there: a live session, and a keyframe since.
+        fresh = now - ENFORCE_FRESH_S
+        if not store.latest(con, unit, blynk.LINK, not_before=fresh):
+            continue                       # no session, or no recent word either way
         actual = {p: store.latest(con, unit, p, not_before=fresh) for p in wanted}
         if any(v is None for v in actual.values()):
+            continue
+        # A unit that is off is not drifting, it is off -- and these units drop
+        # writes while powered down, so correcting one would spend the hour's
+        # budget on writes that never land. Unless being on is itself part of
+        # what it is held to, in which case that is the thing to fix.
+        on = store.latest(con, unit, blynk.POWER, not_before=fresh)
+        if on is not None and not blynk.num(on) and not blynk.num(wanted.get(blynk.POWER, 0)):
             continue
         # Two reasons to leave a pin alone. A setting changed seconds ago has
         # not been reported back yet, and the stale reading is not drift --
@@ -919,9 +938,16 @@ def enforce_defaults(con):
         # fan without having to edit the unit's defaults and remember to put
         # them back.
         changed = store.settings_changed(con, unit)
+        stored = store.get_settings(con, unit)
+
         def held_off(pin):
             at, src = changed.get(pin, (0, None))
-            return now - at < (OVERRIDE_S if src == "dashboard" else KEEP_GRACE_S)
+            # Only a deliberate change that *differs* from the default is an
+            # override. One that agrees with it says nothing, and letting it
+            # count would leave the unit free to drift for the next four hours.
+            override = (src == "dashboard" and pin in stored
+                        and blynk.num(stored[pin]) != blynk.num(wanted[pin]))
+            return now - at < (OVERRIDE_S if override else KEEP_GRACE_S)
         wrong = {p: v for p, v in wanted.items()
                  if blynk.num(actual[p]) != blynk.num(v) and not held_off(p)}
         if not wrong:
