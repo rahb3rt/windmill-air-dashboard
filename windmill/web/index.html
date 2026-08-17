@@ -3255,8 +3255,11 @@ function renderGuard(g) {
     : `On for <b>${on.length || 'no'}</b> unit${on.length===1?'':'s'}`
       + (holding.length ? `, currently holding ${holding.map(([n])=>ROOM.get(n)||n).join(', ')} off` : '')
       + `. ${c.method === 'fan'
-            ? 'Switches to <b>fan-only</b>' : 'Switches <b>off</b>'} below `
-      + `${c.margin_f}°F under setpoint, back to cooling at `
+            ? 'Switches to <b>fan-only</b>' : 'Switches <b>off</b>'} `
+      /* The margin is normally zero — stop cooling at the setpoint — and
+         "below 0°F under setpoint" is not a sentence. */
+      + (c.margin_f ? `below ${c.margin_f}°F under setpoint` : 'at the setpoint')
+      + `, back to cooling at `
       + `${c.on_margin_f}°F above — or after ${Math.round((c.max_off_s||1200)/60)} min `
       + `regardless, as a backstop. ${Math.round((c.min_off_s||300)/60)} min `
       + `minimum either way, so the compressor is never short-cycled.`;

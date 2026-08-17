@@ -27,6 +27,11 @@ BIND = config.HOST_BIND
 SAMPLE_INTERVAL = 30
 RELOAD = config.RELOAD
 
+#: Set across the reloader's execv to name the files that changed, and read
+#: once by `main`. Not a setting: nothing in .env sets it and nothing but the
+#: restart path reads it, so it lives here rather than in `config`.
+RELOADED_ENV = "WINDMILL_RELOADED"
+
 #: How the sync watchdog behaves. A unit is judged by whether the values it
 #: *pushes* are still moving (see blynk.REPORTED) -- setpoints echo back from
 #: the cloud regardless, so they prove nothing.
@@ -739,6 +744,20 @@ def check_overrun(con):
             # off forever by strikes it earned days ago.
             store.note_recovery(con, name, a["detail"])
             continue
+        if guard.held(con, name):
+            # The guard already has this one on fan, and a resync power-cycles
+            # the unit and restores its stored settings -- which are Cool. That
+            # undoes the hold and restarts the compressor the guard just
+            # stopped, minutes after it stopped it. The verdict is also stale by
+            # construction: it is drawn from an hour-long window, most of which
+            # predates the hold. Everything else that writes to a unit
+            # (enforce_defaults, check_restore, bar_eco) already stands aside
+            # for a hold; this was the one that did not.
+            store.log_sync(con, name, a["verdict"], None,
+                           a["detail"] + " The guard is holding it on fan; "
+                           "leaving it alone rather than resyncing it back to "
+                           "cool.")
+            continue
 
         last = store.last_action(con, name, "overrun-resync")
         if last and time.time() - last < overrun_cooldown(con):
@@ -1071,7 +1090,7 @@ ECO_MAX_PER_HOUR = 30
 def bar_eco(con):
     """Take a unit out of Eco, every time, whatever else is going on.
 
-    Measured over one day: Spare Room spent 102 minutes in Eco across nine
+    Measured over one day: one unit spent 102 minutes in Eco across nine
     spells, one of them 50 minutes long. Roughly half the switches into Eco had
     nothing before them -- the units do it by themselves -- and the rest
     followed a write, the same refusal that makes one of them power itself off
@@ -1475,8 +1494,19 @@ def reloader(interval=1.0):
             continue
         broken = None
         names = ", ".join(sorted(p.name for p in changed))
-        log("INFO", "reload", names, "changed — restarting")
+        # Nothing is said on the way out. The process that comes back says it,
+        # in one line, naming these files -- so the line you see is also proof
+        # the restart landed, rather than a promise that it was about to. A
+        # restart that does not come back is a traceback, not a silence: the
+        # files above were compiled a few lines up, and a port that cannot be
+        # rebound reports itself from `main`.
         sys.stdout.flush()
+        # Tell the process on the far side of the exec that this is a restart
+        # rather than a cold start, so it can say so in a line instead of
+        # reprinting the banner. The environment is what survives an execv;
+        # `main` clears it as soon as it has read it, so a subprocess spawned
+        # later cannot inherit a stale marker.
+        os.environ[RELOADED_ENV] = names
         # Same PID, so anything supervising this process is undisturbed.
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
@@ -2236,6 +2266,12 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     """Start the sampler, the maintainer, the watchdog and the server."""
     tee = start_file_log()
+    # Left by `reloader` on the other side of its execv. A restart for a changed
+    # file is this process continuing on new code, not a new session: the banner
+    # would describe the same database, units and switches it described the last
+    # time, and reprinting twenty lines of it every time a file is saved buries
+    # the action log underneath. One line, and on with it.
+    reloaded = os.environ.pop(RELOADED_ENV, None)
     con = store.connect()
     if store.get_meta(con, "rate_per_kwh") is None:
         store.set_meta(con, "rate_per_kwh", config.RATE_PER_KWH)
@@ -2259,7 +2295,10 @@ def main():
         log("INFO", "startup", None,
             "seeded defaults from each unit's own record",
             ", ".join(seeded))
-    banner(con)
+    if reloaded:
+        log("INFO", "reload", reloaded, "changed — restarted on the new code")
+    else:
+        banner(con)
     con.close()
 
     threading.Thread(target=sampler, daemon=True).start()
@@ -2287,8 +2326,12 @@ def main():
               f"    WINDMILL_PORT=8788 bash run.sh\n")
         raise SystemExit(1)
 
-    log("INFO", "startup", None,
-        f"listening on {BIND}:{PORT} — actions appear here as you take them")
+    if not reloaded:
+        # On a restart the line above already said it came back, and the port is
+        # the one it was already on. A failure to rebind still reports itself,
+        # loudly, from the handler above.
+        log("INFO", "startup", None,
+            f"listening on {BIND}:{PORT} — actions appear here as you take them")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

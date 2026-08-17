@@ -483,13 +483,20 @@ def delete_schedule(con, sched_id):
     con.commit()
 
 
-def mark_settling(con, unit, until):
+def mark_settling(con, unit, until, now=None):
     """Note that a unit is mid-resync and not to be believed until `until`.
 
     Kept in the database rather than in memory so it survives the auto-reload,
     and so every thread and request sees the same answer.
+
+    When it *started* is recorded alongside, because "do not believe this unit"
+    decays: the writes a resync makes are done within seconds, while the window
+    runs for minutes to cover the transient reporting that follows. A caller
+    that only cares whether the writing has finished should not have to treat
+    the whole window as equally untrustworthy. See `settling_since`.
     """
     set_meta(con, f"settling:{unit}", int(until))
+    set_meta(con, f"settling_from:{unit}", int(now or time.time()))
 
 
 def settling_until(con, unit, now=None):
@@ -499,6 +506,24 @@ def settling_until(con, unit, now=None):
     except (TypeError, ValueError):
         return None
     return until if until > (now or time.time()) else None
+
+
+def settling_since(con, unit, now=None):
+    """How long this unit has been settling, or None if it is not.
+
+    Missing on a window marked before this was recorded, and on those the
+    honest answer is "unknown", not "just started" -- a caller waiting for the
+    writes to finish must not be told they have when there is no record either
+    way. Reported as 0 for that case, which is the conservative end.
+    """
+    now = int(now or time.time())
+    if settling_until(con, unit, now) is None:
+        return None
+    try:
+        started = int(get_meta(con, f"settling_from:{unit}", 0))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, now - started) if started else 0
 
 
 #: Which column on `units` backs which datastream.

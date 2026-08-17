@@ -12,7 +12,7 @@ the three bad units and 0 on the good ones. A per-unit constant that no write
 changes is firmware, not a state anything here can talk out of it.
 
 So the unit's own thermostat is treated as broken hardware and this process
-supplies one: when a guarded room sits MARGIN_F below its setpoint with the
+supplies one: when a guarded room is at or below its setpoint with the
 compressor running, the unit is switched off; when the room drifts back up, it
 is switched on again with its settings restored. That is the same control loop
 the unit should be running internally, just closed over the network at poll
@@ -48,10 +48,25 @@ import time
 from . import blynk, config, energy, store
 
 
-#: Below setpoint by this much means nothing asked for cooling. Same number as
-#: `overrun.MARGIN_F` deliberately: the condition that flags a unit and the
-#: condition that acts on it should not be able to disagree.
-MARGIN_F = 2.0
+#: Stop cooling once the room is this far below its setpoint. Zero: at the
+#: setpoint, which is the point of a setpoint.
+#:
+#: This used to be 2.0 to match `overrun.MARGIN_F`, on the grounds that the
+#: condition that flags a unit and the condition that acts on it should not
+#: disagree. They are not the same question. `overrun` is a *diagnosis*, and 2 F
+#: is what separates a broken thermostat from a working one (healthy units spend
+#: 0-1% of their running time that far past setpoint, the bad ones 46-58%); it
+#: has to stay where it is or it stops discriminating. This is the *control*
+#: threshold of the thermostat this module supplies in place of the broken one,
+#: and no thermostat keeps the compressor on for two more degrees after it has
+#: got what it asked for.
+#:
+#: What the old number did, measured on one unit over the six hours before
+#: this changed: the compressor ran for 94 min with the room below its setpoint,
+#: and only 4 min of that was 2 F below. The other 90 min sat in the gap between
+#: "colder than you asked for" and "cold enough for the guard to care", which
+#: is the whole of what a thermostat exists to prevent.
+MARGIN_F = 0.0
 
 #: ...and back on at this much *above* setpoint. Non-zero so the off and on
 #: thresholds are different numbers -- with both at the setpoint, a room
@@ -131,6 +146,28 @@ FAN_ONLY = 0
 #: it off again after MIN_ON_S, so the worst case is a bounded cycle rather
 #: than a room left to bake.
 MAX_OFF_S = 1200
+
+#: How much of a settling window must have passed before the guard will act
+#: through one to *stop* a unit cooling.
+#:
+#: The window means "this unit's reported settings are transient, a resync is
+#: still rewriting them". It does not mean the thermistor is lying, and it does
+#: not make a compressor drawing 570 W imaginary. `blynk.resync` spaces its
+#: writes 3 s apart and makes a handful of them, so after a minute and a half
+#: there is nothing left in flight to collide with; what the unit reports after
+#: that is its own measurement again.
+#:
+#: This matters because the units that need guarding are the units that get
+#: resynced. Measured over the 12 h before this changed, the three worst units
+#: were each inside a settling window ~22% of the time -- 47-48 resyncs apiece
+#: -- and for all of it the guard stood fully down. That is how a room sits at
+#: 70F against a 72F setpoint drawing 570 W with the guard switched on and
+#: reporting "Mid-resync".
+#:
+#: Only the stopping direction is allowed through. Switching a unit back *on*
+#: re-sends its settings, which is exactly what a resync is doing, so that waits
+#: for the whole window as before.
+SETTLED_ENOUGH_S = 90
 
 #: How long to keep an eye on a unit after switching it back on. These units
 #: come up in their own default and may drift off the restored settings for a
@@ -267,7 +304,12 @@ def decide(con, unit, now=None, link=None, settling=None):
 
     if settling is None:
         settling = store.settling_until(con, unit, now) is not None
-    if settling:
+    # How long the window has been open, which is how the blanket refusal below
+    # decays into a narrow one. None when the caller asserted `settling` without
+    # the database agreeing, and 0 on a window marked before store.py recorded
+    # starts -- both mean "no idea how long", which fails the test.
+    settled_for = (store.settling_since(con, unit, now) or 0) if settling else 0
+    if settling and (is_held or settled_for < SETTLED_ENOUGH_S):
         # A unit reports a transient state for minutes after a resync. Judging
         # it on that would mean acting on settings nobody chose.
         return out("settling", "Mid-resync; its readings are not trustworthy yet.")
@@ -289,9 +331,9 @@ def decide(con, unit, now=None, link=None, settling=None):
                    f"{'ever' if beat is None else str((now - beat) // 60) + ' min'}; "
                    "its readings may be frozen.")
 
-    temp, _ = _recent(con, unit, blynk.TEMP, now)
+    temp, temp_age = _recent(con, unit, blynk.TEMP, now)
     target, _ = _recent(con, unit, blynk.TARGET, now)
-    watts, _ = _recent(con, unit, config.POWER_PIN, now)
+    watts, watts_age = _recent(con, unit, config.POWER_PIN, now)
     power, power_age = _recent(con, unit, blynk.POWER, now)
     missing = [n for n, v in (("temperature", temp), ("setpoint", target),
                               ("power draw", watts), ("on/off", power))
@@ -299,6 +341,18 @@ def decide(con, unit, now=None, link=None, settling=None):
     if missing:
         return out("stale", f"No reading for {', '.join(missing)} in the last "
                             f"{FRESH_S // 60} min.")
+
+    if settling:
+        # Acting through a settle window is only defensible on evidence the
+        # resync cannot have produced, which means evidence the unit reported
+        # *after* the window opened. A reading older than that is from before
+        # the cycle -- the very thing the window exists to discount.
+        pre = [n for n, age in (("temperature", temp_age), ("power draw", watts_age))
+               if age >= settled_for]
+        if pre:
+            return out("settling",
+                       f"Mid-resync, and its {' and '.join(pre)} reading "
+                       "predates the resync; waiting for it to report afresh.")
 
     off_at, on_at = target - MARGIN_F, target + ON_MARGIN_F
     d.update({"temp": temp, "target": target, "watts": watts,
@@ -377,11 +431,20 @@ def decide(con, unit, now=None, link=None, settling=None):
                    f"min ago -- leaving it running for the {MIN_ON_S // 60} min "
                    "minimum.",
                    ready_at=last_on + MIN_ON_S)
+    # "0.0F below its setpoint" is how the room at exactly its setpoint reads if
+    # the gap is stated unconditionally, and with MARGIN_F at zero that is the
+    # commonest case there is.
+    past = (f"{target - temp:.1f}F below" if temp < target else "already at")
     return out("overcooling",
                f"Running at {watts:.0f}W with the room at {temp:.0f}F, "
-               f"{target - temp:.1f}F below its {target:.0f}F setpoint; "
+               f"{past} its {target:.0f}F setpoint; "
                + ("switching it to fan-only." if METHOD == "fan"
-                  else "switching it off."), action="off")
+                  else "switching it off.")
+               # Worth saying out loud: this is the one place the guard acts on
+               # a unit the rest of the system is treating as unreliable.
+               + (f" (Mid-resync, but it has reported both since, "
+                  f"{settled_for // 60} min in.)" if settling else ""),
+               action="off")
 
 
 def report(con, now=None):
