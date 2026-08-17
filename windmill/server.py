@@ -795,6 +795,28 @@ def check_alerts(con, sync_states, filter_report):
 #: giving up on its stored state and falling back to the configured defaults.
 RESTORE_TRIES = 2
 
+#: How stale a reading may be and still say what a unit is set to. Every pin is
+#: rewritten at least once a keyframe, so twice that means the unit has gone
+#: quiet rather than simply not changed.
+FRESH_ENOUGH_S = 2 * store.KEYFRAME_S
+
+
+def reported_state(con, unit, pins, now):
+    """What a unit is on right now, or None if it has not been heard from.
+
+    Readings are written on change, so the last value for a pin is still the
+    current one however old it is -- a unit sitting wrongly on Fan/Low writes
+    nothing at all. What has to be recent is evidence the unit is still there:
+    a live session, and a keyframe since. Asking for a reading from the last
+    minute instead meant these checks could only ever judge a unit during the
+    moment a setting was changing, which is the one time to keep hands off.
+    """
+    fresh = now - FRESH_ENOUGH_S
+    if not store.latest(con, unit, blynk.LINK, not_before=fresh):
+        return None
+    state = {p: store.latest(con, unit, p, not_before=fresh) for p in pins}
+    return None if any(v is None for v in state.values()) else state
+
 
 def check_restore(con):
     """Put a unit back where it should be after a resync, and keep it there.
@@ -827,13 +849,11 @@ def check_restore(con):
         if not wanted:
             continue
 
-        fresh = now - 3 * SAMPLE_INTERVAL
-        actual = {p: store.latest(con, unit, p, not_before=fresh)
-                  for p in blynk.WRITABLE}
-        if any(v is None for v in actual.values()):
-            continue                       # nothing recent enough to judge
+        actual = reported_state(con, unit, wanted, now)
+        if actual is None:
+            continue                       # not heard from; nothing to judge
         wrong = {p: v for p, v in wanted.items()
-                 if p in actual and blynk.num(actual[p]) != blynk.num(v)}
+                 if blynk.num(actual[p]) != blynk.num(v)}
         key = f"restore_tries:{unit}"
         if not wrong:
             store.set_meta(con, key, 0)
@@ -882,10 +902,6 @@ KEEP_MAX_PER_HOUR = 4
 #: Leave a setting alone for this long after it was set, so the loop does not
 #: react to a reading the unit has not had time to update.
 KEEP_GRACE_S = 90
-#: How stale a reading may be and still say what a unit is set to. Every pin is
-#: rewritten at least once a keyframe, so twice that means the unit has gone
-#: quiet rather than simply not changed.
-ENFORCE_FRESH_S = 2 * store.KEYFRAME_S
 #: How long a change you made yourself outranks the unit's default. Long enough
 #: to be useful, short enough that the units go back to behaving on their own.
 OVERRIDE_S = 4 * 3600
@@ -911,23 +927,14 @@ def enforce_defaults(con):
         wanted = store.unit_defaults(con, unit)
         if not wanted or guard.held(con, unit) or store.settling_until(con, unit, now):
             continue
-        # Readings are written on change, so a unit sitting wrongly on Fan
-        # records nothing at all -- demanding a row from the last minute meant
-        # this only ever fired during the moment a setting was changing, which
-        # is the one time it should keep its hands off. Values are step
-        # functions held forward instead, and what has to be recent is evidence
-        # the unit is still there: a live session, and a keyframe since.
-        fresh = now - ENFORCE_FRESH_S
-        if not store.latest(con, unit, blynk.LINK, not_before=fresh):
-            continue                       # no session, or no recent word either way
-        actual = {p: store.latest(con, unit, p, not_before=fresh) for p in wanted}
-        if any(v is None for v in actual.values()):
-            continue
+        actual = reported_state(con, unit, wanted, now)
+        if actual is None:
+            continue                       # not heard from; nothing to judge
         # A unit that is off is not drifting, it is off -- and these units drop
         # writes while powered down, so correcting one would spend the hour's
         # budget on writes that never land. Unless being on is itself part of
         # what it is held to, in which case that is the thing to fix.
-        on = store.latest(con, unit, blynk.POWER, not_before=fresh)
+        on = store.latest(con, unit, blynk.POWER, not_before=now - FRESH_ENOUGH_S)
         if on is not None and not blynk.num(on) and not blynk.num(wanted.get(blynk.POWER, 0)):
             continue
         # Two reasons to leave a pin alone. A setting changed seconds ago has
