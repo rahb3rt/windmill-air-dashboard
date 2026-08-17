@@ -14,3 +14,12 @@ windmill.db
 windmill.db-wal
 windmill.db-shm
 samples.jsonl
+backups/
+logs/
+
+# Editor swap/backup files. A .env.swp holds the same device tokens the .env
+# does, and is exactly the kind of thing that gets committed by accident.
+*.swp
+*.swo
+*~
+.*.sw?

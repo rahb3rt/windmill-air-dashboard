@@ -22,9 +22,9 @@ import csv
 import pathlib
 import time
 
-import config
-import energy
-import store
+from windmill import config
+from windmill import energy
+from windmill import store
 
 #: CSV column header -> virtual pin. Names come from the widget export.
 COLUMNS = {

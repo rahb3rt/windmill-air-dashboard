@@ -17,7 +17,8 @@
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>REPLACE_WITH_PATH/serve.py</string>
+    <string>-m</string>
+    <string>windmill</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -28,9 +29,11 @@
   <key>KeepAlive</key>
   <true/>
 
+  <!-- The app writes its own dated log under logs/ regardless; these catch
+       anything that escapes before that starts, such as a failure to import. -->
   <key>StandardOutPath</key>
-  <string>REPLACE_WITH_PATH/server.log</string>
+  <string>REPLACE_WITH_PATH/logs/launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>REPLACE_WITH_PATH/server.log</string>
+  <string>REPLACE_WITH_PATH/logs/launchd.log</string>
 </dict>
 </plist>

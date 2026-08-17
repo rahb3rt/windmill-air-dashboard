@@ -2,15 +2,15 @@
 """Print the before/after comparison that the dashboard shows.
 
     python3 compare.py
-    python3 compare.py --change 2026-08-08 --new "Kitchen,Living Room,Spare Room"
+    python3 compare.py --change 2026-08-08 --new "Kitchen,Living Room,Study"
 
 Defaults come from WINDMILL_CHANGE_DATE and WINDMILL_NEW_UNITS in .env. All the
 maths lives in analysis.py so this and the page can never disagree.
 """
 import argparse
 
-import analysis
-import store
+from windmill import analysis
+from windmill import store
 
 
 def main():

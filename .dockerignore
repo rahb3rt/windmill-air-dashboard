@@ -1,0 +1,23 @@
+# Secrets: device tokens grant full control of the AC units. The container
+# reads .env from the mounted /data volume, never from the image.
+.env
+
+# State belongs on a volume, not baked into a layer
+windmill.db
+windmill.db-wal
+windmill.db-shm
+backups/
+samples.jsonl
+*.log
+logs/
+
+.git
+.gitignore
+__pycache__/
+*.pyc
+.DS_Store
+tools/
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore

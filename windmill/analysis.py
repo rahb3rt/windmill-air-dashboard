@@ -21,8 +21,8 @@ import time
 import urllib.parse
 import urllib.request
 
-import config
-import store
+from . import config, store
+
 
 BASE_F = 65.0
 SUMMER = ("06", "07", "08", "09")

@@ -22,10 +22,8 @@ by themselves as quotas reset and units reconnect.
 import argparse
 import time
 
-import backfill
-import config
-import gapfill
-import store
+from . import backfill, config, gapfill, store
+
 
 
 def gaps(con, unit, until=None):

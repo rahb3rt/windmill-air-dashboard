@@ -33,9 +33,8 @@ import time
 import urllib.request
 import zipfile
 
-import blynk
-import config
-import store
+from . import blynk, config, store
+
 
 RUNTIME_DSID = 9        # "Filter Runtime", cumulative hours
 POWER_PIN_RUNTIME = "v7"

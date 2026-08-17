@@ -1,0 +1,3249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windmill AC</title>
+<script>
+  /* Applied before the first paint, not from the main script at the end of the
+     body -- setting it later means one frame rendered in the wrong theme. */
+  (function () {
+    try {
+      var t = localStorage.getItem('windmill.theme');
+      if (t === 'light' || t === 'dark')
+        document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    color-scheme: light;
+    --page:#f9f9f7; --surface-1:#fcfcfb; --surface-2:#f1f1ed;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --accent-wash:rgba(42,120,214,0.10);
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+    --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:#0d0d0d; --surface-1:#1a1a19; --surface-2:#121211;
+      --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5; --accent-wash:rgba(57,135,229,0.16);
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+      --s5:#d55181; --s6:#008300; --s7:#9085e9;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface-1:#1a1a19; --surface-2:#121211;
+    --text-primary:#fff; --text-secondary:#c3c2b7; --text-muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --accent:#3987e5; --accent-wash:rgba(57,135,229,0.16);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --s5:#d55181; --s6:#008300; --s7:#9085e9;
+  }
+
+  * { box-sizing:border-box; }
+  body { margin:0; padding:22px 24px 56px; background:var(--page); color:var(--text-primary);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1880px; margin:0 auto; }
+
+  /* Horizontal layout: a 12-column grid so panels sit beside each other.
+     Each panel declares its own span; everything collapses to one column
+     on narrow screens. */
+  /* An author `display` beats the hidden attribute's UA rule, so a hidden
+     .grid would still lay itself out. Every panel here toggles via [hidden],
+     so make it win outright rather than per-selector. */
+  [hidden] { display:none !important; }
+
+  .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:16px;
+          align-items:start; }
+  .span3{grid-column:span 3}  .span4{grid-column:span 4}
+  .span5{grid-column:span 5}  .span6{grid-column:span 6}
+  .span7{grid-column:span 7}  .span8{grid-column:span 8}
+  .span12{grid-column:span 12}
+  @media (max-width:1500px){
+    .span3,.span4,.span5{grid-column:span 6}
+    .span7,.span8{grid-column:span 12}
+  }
+  @media (max-width:1000px){ .grid > *{grid-column:span 12 !important} }
+
+  header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  h1 { font-size:21px; font-weight:620; margin:0; letter-spacing:-.01em; }
+  .meta { color:var(--text-muted); font-size:13px; margin-left:auto; }
+  .theme { display:flex; gap:0; align-self:center; }
+  .theme button { font:inherit; font-size:11.5px; padding:3px 10px; cursor:pointer;
+                  background:none; border:1px solid var(--border);
+                  color:var(--text-muted); }
+  .theme button:first-child { border-radius:6px 0 0 6px; }
+  .theme button:last-child { border-radius:0 6px 6px 0; }
+  .theme button:not(:first-child) { border-left:none; }
+  .theme button:hover { color:var(--text-primary); }
+  .theme button[aria-pressed="true"] { color:var(--text-primary); font-weight:580;
+                                       background:var(--border); }
+  .dot { width:7px; height:7px; border-radius:50%; background:#0ca30c; display:inline-block; }
+
+  h2 { font-size:13px; font-weight:600; letter-spacing:.02em; text-transform:uppercase;
+       color:var(--text-secondary); margin:0 0 4px; }
+  .sub { font-size:12.5px; color:var(--text-muted); margin:0 0 16px; }
+  section { background:var(--surface-1); border:1px solid var(--border); border-radius:12px;
+            padding:18px 20px; margin:0; min-width:0; }
+  section > .scroll, section > div { min-width:0; }
+
+  /* toolbar */
+  .toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+  .presets { display:flex; flex-wrap:wrap; gap:2px; background:var(--border);
+             border:1px solid var(--border); border-radius:9px; overflow:hidden; }
+  .presets button { border:0; background:var(--surface-1); color:var(--text-secondary);
+    padding:7px 13px; font:inherit; font-size:13px; cursor:pointer; }
+  .presets button:hover { background:var(--accent-wash); color:var(--text-primary); }
+  .presets button[aria-pressed="true"] { background:var(--accent); color:#fff; font-weight:560; }
+  .field { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-muted); }
+  input[type=date], input[type=number] { font:inherit; font-size:13px; padding:6px 9px;
+    border:1px solid var(--border); border-radius:8px; background:var(--surface-1);
+    color:var(--text-primary); }
+  input[type=number] { width:86px; font-variant-numeric:tabular-nums; }
+  .ghost { border:1px solid var(--border); background:var(--surface-1); color:var(--text-secondary);
+    border-radius:8px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; }
+  .ghost:hover { background:var(--accent-wash); color:var(--text-primary); }
+
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+  .chip { display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+          border:1px solid var(--border); background:var(--surface-1);
+          color:var(--text-secondary); border-radius:20px; padding:5px 12px 5px 9px;
+          font:inherit; font-size:12.5px; line-height:1; transition:opacity .12s; }
+  .chip:hover { background:var(--accent-wash); color:var(--text-primary); }
+  .chip i { width:9px; height:9px; border-radius:2px; flex:none; }
+  .chip[aria-pressed="false"] { opacity:.42; }
+  .chip[aria-pressed="false"] i { background:var(--text-muted) !important; }
+  .chip .kwh { color:var(--text-muted); font-variant-numeric:tabular-nums; }
+  .bar, .col rect[data-unit] { cursor:pointer; }
+  .legend span[data-unit] { cursor:pointer; user-select:none; }
+  .legend span[data-unit]:hover { color:var(--text-primary); }
+
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:2px;
+           background:var(--border); border:1px solid var(--border); border-radius:12px;
+           overflow:hidden; }
+  .stat { background:var(--surface-1); padding:18px 20px; }
+  .stat .k { font-size:12px; color:var(--text-muted); margin-bottom:6px; }
+  .stat .v { font-size:27px; font-weight:600; letter-spacing:-.02em; line-height:1.1; }
+  .stat .u { font-size:14px; font-weight:500; color:var(--text-secondary); margin-left:3px; }
+  .stat .n { font-size:12px; color:var(--text-muted); margin-top:5px; }
+
+  /* #cards now holds floor sections stacked down the page; the card grid
+     itself lives one level in, per floor. */
+  .cards { display:block; }
+  .card { border:1px solid var(--border); border-radius:10px; padding:14px 15px; }
+  .card .top { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .swatch { width:9px; height:9px; border-radius:2px; flex:none; }
+  .card .nm { font-weight:580; font-size:14.5px; white-space:nowrap; overflow:hidden;
+              text-overflow:ellipsis; }
+  .pill { margin-left:auto; font-size:11px; padding:2px 7px; border-radius:20px; flex:none;
+          border:1px solid var(--border); color:var(--text-secondary); white-space:nowrap; }
+  .temps { display:flex; align-items:baseline; gap:6px; margin-bottom:12px; }
+  .temps .now { font-size:30px; font-weight:600; letter-spacing:-.02em; }
+  .temps .tgt { font-size:13px; color:var(--text-muted); }
+  .rows { font-size:13px; }
+  .row { display:flex; justify-content:space-between; padding:3px 0; }
+  .row span:first-child { color:var(--text-muted); }
+  .row span:last-child { font-variant-numeric:tabular-nums; }
+  /* Sits directly under the header, above the toolbars, so the tab in play is
+     the first thing read and never moves between tabs. */
+  .tabs { display:flex; gap:2px; margin:4px 0 16px; border-bottom:1px solid var(--border);
+          overflow-x:auto; }
+  .tabs button { font:inherit; font-size:13px; font-weight:500; padding:8px 14px;
+                 background:none; border:none; border-bottom:2px solid transparent;
+                 margin-bottom:-1px; color:var(--text-muted); cursor:pointer;
+                 white-space:nowrap; }
+  .tabs button:hover { color:var(--text-primary); }
+  .tabs button[aria-selected="true"] { color:var(--text-primary);
+                                       border-bottom-color:var(--text-primary); }
+  .tabs .count { font-size:11px; margin-left:6px; opacity:.6;
+                 font-variant-numeric:tabular-nums; }
+
+  .floor { margin-bottom:22px; }
+  .floor-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+               margin-bottom:10px; padding-bottom:8px;
+               border-bottom:1px solid var(--border); }
+  .floor-top h3 { font-size:13.5px; font-weight:600; margin:0; }
+  .floor-sub { font-size:11.5px; color:var(--text-muted); }
+  .floor-ctl { display:flex; align-items:center; gap:8px; margin-left:auto;
+               flex-wrap:wrap; }
+  /* wider than the old cards: the stat strip needs room to read across */
+  .cards-inner { display:grid; gap:10px;
+                 grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); }
+  input.floor-set { font:inherit; font-size:13px; width:88px; background:none;
+                    border:1px solid var(--border); border-radius:5px;
+                    padding:1px 6px; color:var(--text-primary); }
+  input.floor-set::placeholder { color:var(--text-muted); font-size:12px; }
+
+  /* Stats read across, each under its own heading, rather than as label/value
+     rows running down the card. */
+  .metrics { display:flex; flex-wrap:wrap; gap:12px 18px; }
+  .metric { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .metric .k { font-size:9.5px; letter-spacing:.07em; text-transform:uppercase;
+               color:var(--text-muted); white-space:nowrap; }
+  .metric .v { font-size:13px; font-variant-numeric:tabular-nums;
+               white-space:nowrap; }
+  .metrics.foot { margin-top:12px; padding-top:11px; align-items:flex-end;
+                  border-top:1px solid var(--border); }
+  .metrics.foot .resync { margin-left:auto; }
+  .est-note { font-size:11px; color:var(--text-muted); margin:9px 0 0; }
+
+  .syncline { display:flex; align-items:center; gap:6px; font-size:11.5px;
+              margin:-6px 0 9px; color:var(--text-secondary); }
+  .syncline .dot { width:6px; height:6px; border-radius:50%; flex:none; }
+  .syncline .when { margin-left:auto; color:var(--text-muted);
+                    font-variant-numeric:tabular-nums; }
+
+  .ctl { display:flex; flex-direction:column; gap:6px; margin-bottom:12px;
+         padding-bottom:12px; border-bottom:1px solid var(--border); }
+  .ctl-row { display:flex; align-items:center; gap:8px; justify-content:space-between; }
+  .seg-group { display:flex; gap:0; }
+  .seg-group .seg:not(:first-child) { border-left:none; border-radius:0; }
+  .seg-group .seg:first-child { border-radius:6px 0 0 6px; }
+  .seg-group .seg:last-child  { border-radius:0 6px 6px 0; }
+  .seg { font:inherit; font-size:11.5px; padding:4px 9px; background:none; cursor:pointer;
+         border:1px solid var(--border); color:var(--text-muted); white-space:nowrap;
+         flex:1; }
+  .seg:hover:not(:disabled) { color:var(--text-primary); }
+  .seg[aria-pressed="true"] { color:var(--text-primary); font-weight:580;
+                              background:var(--border); }
+  .seg:disabled { opacity:.35; cursor:not-allowed; }
+  .stepper { display:flex; align-items:center; gap:0; flex:none; }
+  .stepper .seg { border-radius:6px 0 0 6px; padding:4px 10px; flex:none; }
+  .stepper .seg:last-child { border-radius:0 6px 6px 0; border-left:none; }
+  .setpt { font-size:12px; font-variant-numeric:tabular-nums; padding:4px 8px;
+           border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+           min-width:38px; text-align:center; }
+  .ctl-err { font-size:11px; color:var(--s2); line-height:1.4; margin-top:2px; }
+  .ctl-ok  { font-size:11px; color:var(--text-secondary); line-height:1.4; margin-top:2px; }
+
+  .sec-head { display:flex; align-items:baseline; gap:12px; }
+  .sec-head h2 { margin-bottom:0; }
+  .sec-head .ghost { margin-left:auto; }
+  .addbox { border:1px solid var(--border); border-radius:9px; padding:12px 14px;
+            margin-bottom:14px; background:var(--surface-1); }
+
+  .unit-list { border:1px solid var(--border); border-radius:9px; overflow:hidden; }
+  .unit-row { display:flex; align-items:center; gap:11px; padding:11px 14px;
+              border-bottom:1px solid var(--border); }
+  .unit-row:last-child { border-bottom:none; }
+  .unit-row.off { opacity:.55; }
+  .unit-row .who { min-width:0; }
+  .unit-row .nm { font-weight:580; font-size:14px; }
+  .unit-row .sub2 { font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+  .unit-row .acts { margin-left:auto; display:flex; gap:0; flex:none; }
+  .unit-row .acts .seg:not(:first-child) { border-left:none; }
+  .unit-row .acts .seg:first-child { border-radius:6px 0 0 6px; }
+  .unit-row .acts .seg:last-child { border-radius:0 6px 6px 0; }
+
+  .tag { display:inline-block; font-size:10.5px; font-weight:600; padding:1px 7px;
+         border-radius:20px; margin-right:6px; white-space:nowrap;
+         border:1px solid var(--border); }
+  .tag.ok   { color:var(--s3); }
+  .tag.warn { color:var(--s2); }
+  .tag.bad  { color:var(--s2); border-color:var(--s2); }
+  .muted { color:var(--text-muted); }
+  tr.failed td { opacity:.75; }
+  .failtxt { color:var(--s2); font-weight:600; }
+
+  .desync.overrun { border-left-color:var(--s2); }
+  .desync { font-size:11.5px; line-height:1.45; margin:-4px 0 10px;
+            color:var(--text-secondary); border-left:2px solid var(--border);
+            padding-left:8px; }
+  button.resync { font:inherit; font-size:11.5px; padding:2px 9px; border-radius:6px;
+                  border:1px solid var(--border); background:none; cursor:pointer;
+                  color:var(--text-secondary); }
+  button.resync:hover:not(:disabled) { color:var(--text-primary); }
+  button.resync:disabled { opacity:.4; cursor:not-allowed; }
+
+  svg { display:block; width:100%; height:auto; overflow:visible; }
+  .tick { fill:var(--text-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .lbl  { fill:var(--text-primary); font-size:12px; font-weight:550; font-variant-numeric:tabular-nums; }
+  .lbl2 { fill:var(--text-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+  .gridline { stroke:var(--grid); stroke-width:1; }
+  .baseline { stroke:var(--axis); stroke-width:1; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:14px; font-size:12.5px;
+            color:var(--text-secondary); }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:6px; }
+
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th,td { text-align:right; padding:7px 10px; white-space:nowrap;
+          border-bottom:1px solid var(--border); font-variant-numeric:tabular-nums; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { color:var(--text-muted); font-weight:550; font-size:12px; }
+  td.unmapped { color:var(--text-muted); }
+  .key { color:var(--text-secondary); font-size:12px; }
+
+  .tip { position:fixed; pointer-events:none; opacity:0; transition:opacity .1s;
+         background:var(--surface-1); border:1px solid var(--border); border-radius:8px;
+         padding:9px 11px; font-size:12.5px; box-shadow:0 4px 18px rgba(0,0,0,.16); z-index:9;
+         font-variant-numeric:tabular-nums; max-width:280px; }
+  .tip b { display:block; margin-bottom:5px; font-size:12px; }
+  .tip .tr { display:flex; gap:14px; justify-content:space-between; }
+  .empty { color:var(--text-muted); font-size:13px; padding:28px 0; text-align:center; }
+  .note { font-size:12px; color:var(--text-muted); margin-top:12px; }
+
+  .card .top .info { font:inherit; font-size:11px; font-weight:700; font-style:italic;
+    width:18px; height:18px; flex:none; border-radius:50%; cursor:pointer;
+    border:1px solid var(--border); background:none; color:var(--text-muted);
+    line-height:1; padding:0; }
+  .card .top .info:hover { color:var(--text-primary); border-color:var(--text-muted); }
+  .card .top .pill { margin-left:auto; }
+
+  .api-group { font-size:12px; font-weight:600; text-transform:uppercase;
+               letter-spacing:.07em; color:var(--text-muted); margin:22px 0 10px; }
+  .api-group:first-child { margin-top:4px; }
+  .api-ep { border:1px solid var(--border); border-radius:9px; padding:13px 15px;
+            margin-bottom:9px; }
+  .api-head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .api-path { font-size:13px; font-weight:600; }
+  .api-head .ghost { margin-left:auto; padding:2px 10px; font-size:11.5px; }
+  .api-sum { font-size:12.5px; color:var(--text-secondary); margin:8px 0 0; }
+  .api-params { width:100%; border-collapse:collapse; margin-top:9px; font-size:12px; }
+  .api-params td { padding:3px 8px 3px 0; vertical-align:top;
+                   border-bottom:1px solid var(--border); }
+  .api-params td:first-child { width:150px; white-space:nowrap; }
+  .api-params tr:last-child td { border-bottom:none; }
+  .req { font-size:9.5px; text-transform:uppercase; letter-spacing:.06em;
+         color:var(--s2); margin-left:6px; }
+  .api-ret { font-size:12px; color:var(--text-muted); margin:9px 0 0; }
+  .api-gotcha { font-size:12px; line-height:1.5; margin:8px 0 0; padding-left:9px;
+                border-left:2px solid var(--s2); color:var(--text-secondary); }
+  .api-gotcha b { color:var(--s2); }
+  .api-out { margin:10px 0 0; padding:10px 12px; background:var(--surface-2);
+             border:1px solid var(--border); border-radius:7px; font-size:11.5px;
+             line-height:1.45; max-height:340px; overflow:auto; white-space:pre;
+             font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.92em;
+         background:var(--border); padding:1px 5px; border-radius:4px; }
+
+  .live-grid { display:grid; gap:2px; margin-bottom:16px;
+              grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
+              background:var(--border); border:1px solid var(--border);
+              border-radius:9px; overflow:hidden; }
+  .live-tile { background:var(--surface-1); padding:11px 13px; }
+  .live-tile .k { display:block; font-size:9.5px; letter-spacing:.07em;
+                  text-transform:uppercase; color:var(--text-muted); }
+  .live-tile .v { display:block; font-size:17px; font-weight:600; margin-top:3px;
+                  letter-spacing:-.01em; }
+  .live-tile .n { display:block; font-size:11px; color:var(--text-muted); margin-top:2px; }
+  tr.unmapped td { color:var(--text-muted); }
+
+  .modal[hidden] { display:none !important; }
+  .modal { position:fixed; inset:0; z-index:50; display:flex;
+           align-items:flex-start; justify-content:center; padding:26px 16px;
+           overflow-y:auto; }
+  .modal-back { position:fixed; inset:0; background:rgba(0,0,0,.5); }
+  .modal-panel { position:relative; width:min(1040px,100%); background:var(--surface-1);
+                 border:1px solid var(--border); border-radius:12px; padding:18px 20px 20px;
+                 box-shadow:0 18px 50px rgba(0,0,0,.32); }
+  .modal-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+                margin-bottom:14px; }
+  .modal-head h2 { margin:0; font-size:16px; }
+  .modal-head .presets { margin-left:auto; }
+  .modal-head .ghost { padding:3px 9px; }
+  .modal-panel .stats { margin-bottom:16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Windmill AC</h1>
+    <span class="meta" id="meta">loading…</span>
+    <div class="theme" id="themeToggle" role="group" aria-label="Colour theme"></div>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+
+  <!-- Two toolbars, because the two kinds of control answer different
+       questions. Range, rate and unit filters only mean anything on a tab
+       showing history; the live switches only mean anything where units are
+       being driven. Each tab gets the one it can actually use. -->
+  <div class="toolbar" id="rangeBar">
+    <div class="presets" id="presets"></div>
+    <span class="field">
+      <input type="date" id="from"> <span>to</span> <input type="date" id="to">
+      <button class="ghost" id="apply">Apply</button>
+    </span>
+    <span class="field" style="margin-left:auto">
+      $<input type="number" id="rate" step="0.001" min="0"> / kWh
+    </span>
+    <button class="ghost" id="clearFilter" hidden>Show all units</button>
+    <button class="ghost" id="repairBtn"
+      title="Fetch any history Windmill still has, then reconstruct only hours a unit ran without reporting">
+      Repair gaps</button>
+  </div>
+
+  <div class="toolbar" id="liveBar" hidden>
+    <label class="field" title="Automatically resync a unit that is connected but has stopped reporting">
+      <input type="checkbox" id="autoResync"> Auto-resync
+    </label>
+    <label class="field" title="Resync a unit found cooling while its room is already below setpoint">
+      <input type="checkbox" id="autoOverrun"> Auto-fix overrun
+    </label>
+    <label class="field" title="Switch a unit off when its own thermostat keeps cooling a room already below setpoint">
+      <input type="checkbox" id="autoGuard"> Thermostat guard
+    </label>
+    <button class="ghost" id="syncAll" style="margin-left:auto"
+      title="Resync every unit to its saved settings">Sync all</button>
+  </div>
+
+  <div class="chips" id="unitFilter"></div>
+  <datalist id="floorNames"></datalist>
+
+  <div class="grid" id="statsRow">
+    <div class="stats span12" id="stats"></div>
+  </div>
+
+  <div class="grid tab" id="tab-controls" data-tab="controls">
+    <section class="span12">
+      <h2>Units</h2>
+      <p class="sub" id="unitsSub"></p>
+      <div class="cards" id="cards"></div>
+    </section>
+  </div>
+
+  <div class="grid tab" id="tab-energy" data-tab="energy" hidden>
+    <section class="span8">
+      <h2 id="trendTitle">Over time</h2>
+      <p class="sub" id="trendSub"></p>
+      <div id="trendChart"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section class="span4">
+      <h2 id="energyTitle">Energy by unit</h2>
+      <p class="sub" id="energySub"></p>
+      <div id="barChart"></div>
+    </section>
+
+    <section class="span12">
+      <h2>Against the units' own meters</h2>
+      <p class="sub" id="meterSub"></p>
+      <div class="scroll" id="meterTable"></div>
+      <p class="note" id="meterNote"></p>
+    </section>
+  </div>
+
+  <div class="grid tab" id="tab-climate" data-tab="climate" hidden>
+    <section class="span12" id="tempSection">
+      <h2 id="tempTitle">Temperature</h2>
+      <p class="sub" id="tempSub"></p>
+      <div id="tempChart"></div>
+      <div class="legend">
+        <span><i style="background:var(--s2)"></i>Outdoor</span>
+        <span><i style="background:var(--s1)"></i>Indoor (average)</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="grid tab" id="tab-analysis" data-tab="analysis" hidden>
+    <section class="span12">
+      <h2>This month</h2>
+      <p class="sub" id="fcSub"></p>
+      <div class="stats" id="fcStats"></div>
+      <div class="scroll" id="fcTable"></div>
+      <p class="note" id="fcCaveats"></p>
+    </section>
+
+    <section class="span4" id="curveSection" hidden>
+      <h2 id="curveTitle">Days needed to pay off</h2>
+      <p class="sub" id="curveSub"></p>
+      <div class="scroll" id="curveTable"></div>
+    </section>
+
+    <section class="span8" id="compareSection" hidden>
+      <h2 id="compareTitle">Before vs after</h2>
+      <div class="stats" id="paybackStats" style="margin-bottom:14px"></div>
+      <p class="sub" id="compareSub"></p>
+      <div class="scroll" id="compareTable"></div>
+      <p class="note" id="compareNote"></p>
+    </section>
+
+    <p class="note" id="analysisEmpty" hidden>Nothing to compare yet. This fills in
+      once a change date is configured and there is history either side of it.</p>
+  </div>
+
+  <div class="grid tab" id="tab-schedule" data-tab="schedule" hidden>
+    <section class="span12">
+      <h2>Schedules</h2>
+      <p class="sub">Rules fire once when their time passes and then leave the
+        unit alone, so a change you make by hand sticks until the next rule.
+        A rule missed while this was not running is skipped rather than replayed.</p>
+      <div class="toolbar" style="margin:0 0 14px" id="schedForm">
+        <label class="field">Set <select id="schField"></select></label>
+        <label class="field">to <input type="number" id="schValue" style="width:70px"></label>
+        <label class="field">on <select id="schScope"></select></label>
+        <label class="field">at <input type="time" id="schAt" value="07:00"></label>
+        <label class="field">days <select id="schDays"></select></label>
+        <button class="ghost" id="schAdd">Add rule</button>
+        <button class="ghost" id="schCancel" hidden>Cancel</button>
+      </div>
+      <div class="scroll" id="schedTable"></div>
+      <p class="note" id="schedNext"></p>
+    </section>
+  </div>
+
+  <div class="grid tab" id="tab-settings" data-tab="settings" hidden>
+    <section class="span12">
+      <div class="sec-head">
+        <h2>Your Windmill units</h2>
+        <button class="ghost" id="uAddOpen">+ Add AC unit</button>
+      </div>
+      <p class="sub" id="unitsAdminSub"></p>
+
+      <div id="unitsAdmin"></div>
+    </section>
+
+
+    <section class="span12">
+      <h2>Rate</h2>
+      <p class="sub">Applied to every range retroactively, including history
+        already recorded.</p>
+      <div class="toolbar" style="margin:0">
+        <span class="field">$<input type="number" id="rate2" step="0.001" min="0"
+          style="width:90px"> per kWh</span>
+        <span class="field muted" id="rateNote"></span>
+      </div>
+    </section>
+
+    <section class="span12">
+      <h2>Backups</h2>
+      <p class="sub" id="backupSub"></p>
+      <div class="toolbar" style="margin:0">
+        <button class="ghost" id="backupNow">Back up now</button>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="grid tab" id="tab-watchdog" data-tab="watchdog" hidden>
+    <section class="span12">
+      <h2>What the watchdog sees</h2>
+      <p class="sub" id="watchSub"></p>
+      <div class="toolbar" style="margin:0 0 14px">
+        <label class="field">Wait between overrun fixes
+          <select id="cooldownSel"></select>
+        </label>
+      </div>
+      <div class="scroll" id="watchTable"></div>
+      <p class="note" id="watchRules"></p>
+    </section>
+
+    <section class="span12">
+      <h2>Thermostat guard</h2>
+      <p class="sub" id="guardSub"></p>
+      <div class="scroll" id="guardTable"></div>
+      <p class="note" id="guardNote"></p>
+
+      <h2 style="margin-top:26px">Revision split</h2>
+      <p class="sub" id="revSub"></p>
+      <div class="scroll" id="revTable"></div>
+
+      <h2 style="margin-top:26px">Air filters</h2>
+      <p class="sub" id="filterSub"></p>
+      <div class="scroll" id="filterTable"></div>
+      <p class="note" id="filterNote"></p>
+    </section>
+
+    <section class="span12" id="watchSection" hidden>
+      <h2>What it has done</h2>
+      <p class="sub">Every check that found something, and every action taken.
+        Nothing here happens silently.</p>
+      <div class="toolbar" style="margin:0 0 12px">
+        <div class="presets" id="logRanges"></div>
+        <label class="field">Unit <select id="logUnit"></select></label>
+        <span class="field" id="logCount" style="margin-left:auto"></span>
+      </div>
+      <div class="scroll" id="watchLog"></div>
+    </section>
+
+  </div>
+
+  <div class="grid tab" id="tab-audit" data-tab="audit" hidden>
+    <section class="span12">
+      <h2>Audit trail</h2>
+      <p class="sub">Everything that actually changed something — what you did
+        from this page, and what the watchdog did on its own. The same lines
+        `serve.py` prints to the terminal as they happen.</p>
+      <div class="toolbar" style="margin:0 0 12px">
+        <div class="presets" id="auditRanges"></div>
+        <label class="field">Who <select id="auditSource"></select></label>
+        <label class="field">Unit <select id="auditTarget"></select></label>
+        <span class="field" id="auditCount" style="margin-left:auto"></span>
+      </div>
+      <div class="scroll" id="auditLog"></div>
+    </section>
+  </div>
+
+  <div class="grid tab" id="tab-api" data-tab="api" hidden>
+    <section class="span12">
+      <h2>API</h2>
+      <p class="sub" id="apiSub"></p>
+      <div id="apiList"></div>
+    </section>
+    <section class="span12">
+      <h2>Reference</h2>
+      <div class="scroll" id="apiRef"></div>
+    </section>
+    <section class="span12">
+      <h2>Windmill's own API</h2>
+      <p class="sub" id="upSub"></p>
+      <div id="upList"></div>
+      <div class="scroll" id="upRef"></div>
+
+      <h3 class="api-group" style="margin-top:24px">Identify an unbound stream</h3>
+      <p class="sub">Night Mode and Beeping Mode are named by the export API but
+        sit at 0 on every unit here, so correlating values cannot bind them.
+        Instead: start watching, toggle the feature in the Windmill app, and
+        whichever pin moves is the one. Nothing is ever written to an
+        unidentified pin.</p>
+      <div class="toolbar" style="margin:0 0 12px">
+        <label class="field">Watch <select id="idUnit"></select></label>
+        <label class="field">while toggling <select id="idLabel"></select></label>
+        <button class="ghost" id="idStart">Start watching</button>
+        <button class="ghost" id="idStop" hidden>Stop</button>
+      </div>
+      <div id="idState"></div>
+    </section>
+  </div>
+
+  <div class="grid tab" id="tab-data" data-tab="data" hidden>
+    <section class="span12">
+      <h2>All metrics</h2>
+      <p class="sub">Live values for every datastream each unit reports. Named rows are
+        confirmed; the rest are undocumented and shown raw.</p>
+      <div class="scroll" id="table"></div>
+      <p class="note" id="coverage"></p>
+    </section>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+
+<div class="modal" id="addUnitModal" hidden>
+  <div class="modal-back" id="addBack"></div>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="addTitle"
+       style="width:min(460px,100%)">
+    <div class="modal-head">
+      <h2 id="addTitle">Add an AC unit</h2>
+      <button class="ghost" id="uAddCancel" aria-label="Close">✕</button>
+    </div>
+    <div class="ctl" style="border-bottom:none;margin-bottom:4px">
+      <label class="field" style="display:block;margin-bottom:10px">
+        <span class="k" style="display:block;margin-bottom:4px">Name</span>
+        <input id="uName" placeholder="Spare Room" style="width:100%"></label>
+      <label class="field" style="display:block">
+        <span class="k" style="display:block;margin-bottom:4px">Device token</span>
+        <input id="uToken" type="password" autocomplete="off"
+          placeholder="32 characters" style="width:100%"></label>
+    </div>
+    <p class="note">Windmill app → the unit → its auth token. It is stored here
+      and never shown again — the dashboard only ever displays its last four
+      characters.</p>
+    <div class="ctl-row" style="justify-content:flex-end;gap:8px;margin-top:14px">
+      <button class="ghost" id="uAddClose">Cancel</button>
+      <button class="ghost" id="uAdd">Add unit</button>
+    </div>
+    <p class="ctl-err" id="uAddErr" hidden></p>
+  </div>
+</div>
+
+<div class="modal" id="unitModal" hidden>
+  <div class="modal-back" id="modalBack"></div>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="umTitle">
+    <div class="modal-head">
+      <h2 id="umTitle">Unit</h2>
+      <div class="presets" id="umRanges"></div>
+      <button class="ghost" id="umClose" aria-label="Close">✕</button>
+    </div>
+    <div class="stats" id="umStats"></div>
+    <div id="umLive"></div>
+    <div id="umChart"></div>
+    <p class="note" id="umNote"></p>
+    <h3 class="api-group" style="margin-top:22px">Everything it reports</h3>
+    <p class="sub" id="umPinsSub"></p>
+    <div class="scroll" id="umPins"></div>
+  </div>
+</div>
+
+<script>
+const SERIES = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7'];
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const colorOf = i => css(SERIES[i % SERIES.length]);
+
+// Names are Windmill's own, read from the CSV export headers; the pin each one
+// binds to was established by correlating exported values against live reads.
+const PIN_LABELS = {
+  v0:'Power Switch', v1:'Room Temperature (°F)', v2:'Set Temperature (°F)',
+  v3:'Mode', v4:'Fan Speed', v7:'Filter Runtime (h)', v15:'Power (W)',
+  v16:'Energy (kWh, last 15 min)', v30:'WiFi RSSI (dBm)',
+  v11:'Filter Change Indicator', v31:'Protocol Failure Count',
+  // synthetic, added by blynk.read_all -- not a Windmill datastream
+  c0:'Cloud session'
+};
+const PIN_FMT = {
+  v0: v => v==1 ? 'On' : 'Off',
+  v3: v => ({0:'Fan',1:'Cool',2:'Eco'}[v] ?? v),
+  v4: v => ({0:'Auto',1:'Low',2:'Medium',3:'High'}[v] ?? v),
+  c0: v => v==1 ? 'Connected' : 'Dropped',
+  v11: v => v==1 ? 'Change filter' : 'Filter fine',
+};
+const PRESETS = [['today','Today'],['24h','24h'],['7d','7 days'],['30d','30 days'],
+                 ['mtd','Month'],['ytd','Year'],['12mo','12 mo']];
+
+let state = { range:'today', from:null, to:null, data:null, hidden:new Set(),
+              showTemp:true, desynced:0, flagged:0, logUnit:'', editing:null,
+              auditSource:'', auditTarget:'',
+              auditRange: (()=>{ try { return localStorage.getItem('windmill.auditRange')
+                                       || '24h'; } catch(e){ return '24h'; } })(),
+              logRange: (()=>{ try { return localStorage.getItem('windmill.logRange')
+                                     || '24h'; } catch(e){ return '24h'; } })(),
+              theme: (()=>{ try { return localStorage.getItem('windmill.theme')
+                                  || 'system'; } catch(e){ return 'system'; } })(),
+              tab: localStorage.getItem('windmill.tab') || 'controls' };
+let tempLegend = '', outdoorAt = null;
+
+/* Colour follows the unit, never its position in the filtered list, so hiding
+   one never repaints the others. Built once from the server's full ordering. */
+let COLOR_IDX = new Map();
+const colorFor = name => colorOf(COLOR_IDX.get(name) ?? 0);
+/* device name -> the room it was in for the range on screen */
+let ROOM = new Map();
+const roomOf = name => ROOM.get(name) || name;
+
+function toggleUnit(name, isolate) {
+  const all = [...COLOR_IDX.keys()];
+  if (isolate) {
+    const onlyThis = state.hidden.size === all.length - 1 && !state.hidden.has(name);
+    state.hidden = onlyThis ? new Set() : new Set(all.filter(n => n !== name));
+  } else {
+    state.hidden.has(name) ? state.hidden.delete(name) : state.hidden.add(name);
+    if (state.hidden.size === all.length) state.hidden.clear();   // never blank
+  }
+  rerender();
+}
+
+/* Filtering is a view over the payload: units are dropped and the totals that
+   depend on them recomputed, so every panel agrees with the chips. */
+function filtered(d) {
+  if (!state.hidden.size) return d;
+  const units = d.units.filter(u => !state.hidden.has(u.name));
+  const kwh = units.reduce((a,u) => a + (u.kwh || 0), 0);
+  const v = { ...d,
+    units: units.map(u => ({ ...u,
+      share: kwh ? Math.round(1000 * (u.kwh || 0) / kwh) / 10 : null })),
+    totals: { ...d.totals,
+      kwh: Math.round(kwh * 1000) / 1000,
+      cost: Math.round(kwh * d.rate * 100) / 100,
+      watts: units.reduce((a,u) => a + (u.watts || 0), 0),
+      cooling_min: units.reduce((a,u) => a + (u.cooling_min || 0), 0),
+      est_kwh: Math.round(units.reduce((a,u) => a + (u.est_kwh || 0), 0) * 1000) / 1000,
+      online: units.filter(u => u.online).length,
+      count: units.length,
+      daily_avg_kwh: Math.round(kwh / Math.max(1, d.range.span/86400) * 1000) / 1000,
+    },
+    series: { ...d.series, units: Object.fromEntries(
+      Object.entries(d.series.units).filter(([n]) => !state.hidden.has(n))) },
+  };
+  return v;
+}
+
+function renderChips(d) {
+  const el = document.getElementById('unitFilter');
+  el.innerHTML = d.units.map(u => {
+    const on = !state.hidden.has(u.name);
+    return `<button class="chip" data-unit="${u.name}" aria-pressed="${on}"
+      title="Click to toggle · double-click to show only this one">
+      <i style="background:${colorFor(u.name)}"></i>${u.display || u.name}
+      <span class="kwh">${u.kwh==null ? '–' : fmt(u.kwh,1)+' kWh'}</span></button>`;
+  }).join('');
+  syncToolbars();   // owns clearFilter, which depends on the tab too
+}
+
+function rerender() {
+  if (!state.data) return;
+  const d = filtered(state.data);
+  renderChips(state.data);
+  renderStats(d); renderBars(d); renderTrend(d); renderTemps(d);
+  // Cards ignore the unit filter: it belongs to the history views, and its
+  // chips are not on the Controls tab, so a filtered-out unit would vanish
+  // from the page with no visible way to bring it back.
+  renderCards(state.data); renderTable(d);
+}
+
+const fmt = (n,d=0) => n==null ? '–' :
+  Number(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const clock = ts => new Date(ts*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+const dayLbl = ts => new Date(ts*1000).toLocaleDateString([],{month:'short',day:'numeric'});
+const dur = m => m>=60 ? `${Math.floor(m/60)}h ${Math.round(m%60)}m` : `${Math.round(m)}m`;
+const isoDay = ts => new Date(ts*1000).toLocaleDateString('en-CA');
+
+const tip = document.getElementById('tip');
+function showTip(evt, html) {
+  tip.innerHTML = html; tip.style.opacity = 1;
+  const r = tip.getBoundingClientRect();
+  let x = evt.clientX+14, y = evt.clientY+14;
+  if (x + r.width  > innerWidth  - 8) x = evt.clientX - r.width  - 14;
+  if (y + r.height > innerHeight - 8) y = evt.clientY - r.height - 14;
+  tip.style.left = x+'px'; tip.style.top = y+'px';
+}
+const hideTip = () => tip.style.opacity = 0;
+
+/* ---------------- toolbar ---------------- */
+document.getElementById('presets').innerHTML = PRESETS.map(([k,l]) =>
+  `<button data-range="${k}" aria-pressed="false">${l}</button>`).join('');
+document.getElementById('presets').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state = { ...state, range:b.dataset.range, from:null, to:null };
+  load();
+});
+document.getElementById('apply').addEventListener('click', () => {
+  const f = document.getElementById('from').value, t = document.getElementById('to').value;
+  if (!f || !t) return;
+  state = { ...state, range:null,
+            from: new Date(f+'T00:00:00').getTime()/1000,
+            to:   new Date(t+'T23:59:59').getTime()/1000 };
+  load();
+});
+document.getElementById('rate').addEventListener('change', async e => {
+  const v = parseFloat(e.target.value);
+  if (!(v >= 0)) return;
+  await api('/api/rate?set=' + v);
+  load();
+});
+document.getElementById('unitFilter').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (b) toggleUnit(b.dataset.unit, false);
+});
+document.getElementById('unitFilter').addEventListener('dblclick', e => {
+  const b = e.target.closest('.chip'); if (b) toggleUnit(b.dataset.unit, true);
+});
+document.getElementById('clearFilter').addEventListener('click', () => {
+  state.hidden.clear(); rerender();
+});
+document.getElementById('legend').addEventListener('click', e => {
+  if (e.target.closest('[data-temp]')) { state.showTemp = !state.showTemp; rerender(); return; }
+  const s = e.target.closest('[data-unit]'); if (s) toggleUnit(s.dataset.unit, false);
+});
+
+document.getElementById('repairBtn').addEventListener('click', async e => {
+  e.target.disabled = true; e.target.textContent = 'Repairing…';
+  try {
+    const r = await api('/api/repair');
+    const res = r.results || [];
+    const real = res.reduce((a,x) => a + (x.recovered||0), 0);
+    const est  = res.reduce((a,x) => a + (x.estimated||0), 0);
+    const left = res.reduce((a,x) => a + (x.missing_after||0), 0);
+    e.target.textContent = real||est ? `+${real}h real, +${est}h est`
+                                     : (left ? `${left}h still missing` : 'No gaps');
+  } catch { e.target.textContent = 'Failed'; }
+  setTimeout(() => { e.target.disabled = false; e.target.textContent = 'Repair gaps'; }, 4000);
+  load();
+});
+
+/* ---------------- stats ---------------- */
+function renderStats(d) {
+  const t = d.totals, days = d.range.span/86400;
+  document.getElementById('stats').innerHTML = [
+    ['Energy used', fmt(t.kwh, t.kwh<10?2:1), 'kWh', d.range.label.toLowerCase()],
+    ['Cost', '$'+fmt(t.cost,2), '', `at $${d.rate.toFixed(3)}/kWh`],
+    ['Average per day', fmt(t.daily_avg_kwh,2), 'kWh', `over ${fmt(days,days<3?1:0)} days`],
+    ['Drawing now', fmt(t.watts), 'W', `${t.online} of ${t.count} units online`],
+  ].map(([k,v,u,n]) => `<div class="stat"><div class="k">${k}</div>
+      <div class="v">${v}${u?`<span class="u">${u}</span>`:''}</div>
+      <div class="n">${n}</div></div>`).join('');
+}
+
+/* ---------------- bars: energy by unit ---------------- */
+function renderBars(d) {
+  const el = document.getElementById('barChart');
+  const units = [...d.units].sort((a,b) => (b.kwh ?? -1) - (a.kwh ?? -1));
+  const max = Math.max(...units.map(u => u.kwh ?? 0), .001);
+
+  const W = Math.max(300, el.clientWidth || 900);
+  const wide = W > 500;
+  const rowH = wide ? 34 : 31;
+  // longest name decides the left gutter; the value label rides just past each
+  // bar, so the bars are scaled into what is left after reserving room for both
+  const nameW = Math.min(150, 8 + 7.2 * Math.max(...d.units.map(u => u.name.length)));
+  const padL = Math.round(nameW) + 14;
+  const padR = wide ? 108 : 8;                       // right column: $cost · share%
+  const valueW = 74;                                 // "183.53 kWh"
+  const plot = Math.max(30, W - padL - padR - valueW);
+  const H = units.length * rowH + 8;
+
+  const bars = units.map((u,i) => {
+    const y = i*rowH + 6, c = colorFor(u.name);
+    if (!u.complete) return `<g class="bar" data-name="${u.name}">
+      <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
+      <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end"
+        style="opacity:.5">${u.display || u.name}</text>
+      <rect x="${padL}" y="${y}" width="${plot}" height="18" rx="4" fill="none"
+        stroke="${c}" stroke-width="1" stroke-dasharray="3 3" opacity=".45"></rect>
+      <text class="lbl2" x="${padL+10}" y="${y+13}">no data · ${fmt(u.missing_h)}h missing</text>
+    </g>`;
+    const w = Math.max(2, (u.kwh/max)*plot);
+    return `<g class="bar" data-name="${u.name}">
+      <rect x="0" y="${y-6}" width="${W}" height="${rowH}" fill="transparent"></rect>
+      <text class="lbl" x="${padL-12}" y="${y+13}" text-anchor="end">${u.display || u.name}</text>
+      <rect x="${padL}" y="${y}" width="${w}" height="18" rx="4" fill="${c}"></rect>
+      <text class="lbl" x="${padL+w+8}" y="${y+13}">${fmt(u.kwh,1)}<tspan
+        class="lbl2"> kWh</tspan></text>
+      ${wide ? `<text class="lbl2" x="${W}" y="${y+13}" text-anchor="end"
+        >$${fmt(u.cost,2)} · ${fmt(u.share,1)}%</text>` : ''}
+    </g>`;
+  }).join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+    aria-label="Energy used by unit">${bars}</svg>`;
+
+  el.querySelectorAll('.bar').forEach(g => {
+    const u = units.find(x => x.name === g.dataset.name);
+    g.addEventListener('mousemove', e => showTip(e, `<b>${u.display || u.name}</b>${
+      u.prior_room ? ` <span style="opacity:.6;font-weight:400">(was ${u.prior_room} before ${d.moved_on})</span>` : ''}
+      ${u.complete ? '' : `<div class="tr"><span>History</span><span>${fmt(u.missing_h)}h missing</span></div>`}
+      <div class="tr"><span>Energy</span><span>${u.complete?fmt(u.kwh,3)+' kWh':'no data'}</span></div>
+      ${u.est_kwh>0.01?`<div class="tr"><span>of which estimated</span>
+        <span>${fmt(u.est_kwh,2)} kWh (${fmt(u.est_share,0)}%)</span></div>
+        <div class="tr"><span>estimated by</span><span>${(u.est_methods||[]).join(', ')}</span></div>`:''}
+      <div class="tr"><span>Cost</span><span>$${fmt(u.cost,2)}</span></div>
+      <div class="tr"><span>Share</span><span>${fmt(u.share,1)}%</span></div>
+      <div class="tr"><span>Compressor</span><span>${dur(u.cooling_min)}</span></div>
+      <div class="tr"><span>Peak draw</span><span>${fmt(u.peak_w)} W</span></div>`));
+    g.addEventListener('mouseleave', hideTip);
+    g.addEventListener('click', () => { hideTip(); toggleUnit(u.name, true); });
+  });
+
+  document.getElementById('energyTitle').textContent = `Energy by unit — ${d.range.label}`;
+  const inc = (d.totals.incomplete || []).filter(n => !state.hidden.has(n));
+  document.getElementById('energySub').textContent =
+    `${fmt(d.totals.kwh,2)} kWh total, $${fmt(d.totals.cost,2)}. Ranked highest first.`
+    + (inc.length ? `  ${inc.join(', ')} ${inc.length>1?'have':'has'} no history for this `
+      + `range and ${inc.length>1?'are':'is'} excluded from the total.` : '')
+    + (d.totals.est_kwh > 0.01
+        ? `  ${fmt(d.totals.est_kwh,1)} kWh of this is reconstructed for hours `
+        + `${(d.totals.estimated_units||[]).join(', ')} ran without reporting.` : '');
+}
+
+/* Outdoor temperature drawn over the energy chart on its own right-hand axis.
+
+   A second scale means the apparent gap between the curves is partly a choice
+   of ranges, so this is drawn to be followed, not measured against the bars:
+   a thin dashed neutral line that never borrows a series colour, with its own
+   ticks in F and the exact values in the temperature panel below. The scale is
+   rounded to whole 5F steps rather than fitted tightly to the data, so the
+   line's position stays comparable as the range changes. */
+function tempOverlay(d, xOf, yTop, yBot, xRight) {
+  const tp = d.temps;
+  if (!state.showTemp || !tp || !tp.t.length) return {svg:'', at:null, lo:null, hi:null};
+  const byHour = new Map();
+  tp.t.forEach((ts,i) => { if (tp.outdoor[i]!=null) byHour.set(ts, tp.outdoor[i]); });
+  if (byHour.size < 2) return {svg:'', at:null, lo:null, hi:null};
+  const at = ts => byHour.has(ts) ? byHour.get(ts) : null;
+  const vals=[...byHour.values()];
+  const lo=Math.floor(Math.min(...vals)/5)*5, hi=Math.ceil(Math.max(...vals)/5)*5;
+  const Y = v => yBot - (v-lo)/((hi-lo)||1)*(yBot-yTop);
+  const ink = css('--text-secondary');
+
+  let path='', pen=false;
+  d.series.t.forEach((ts,i) => {
+    const v = at(ts);
+    if (v==null) { pen=false; return; }
+    path += (pen?'L':'M') + xOf(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+    pen = true;
+  });
+  const ticks = [0,.5,1].map(f => Math.round((lo + (hi-lo)*f)/5)*5);
+  const axis = ticks.map(v => `<text class="tick" x="${xRight+6}" y="${Y(v)+4}"
+    text-anchor="start" style="fill:${ink};opacity:.85">${v}°</text>`).join('');
+  return {
+    at, lo, hi,
+    svg: `<g aria-hidden="true">
+      <path d="${path}" fill="none" stroke="${ink}" stroke-width="1.75"
+        stroke-dasharray="5 3" stroke-linejoin="round" stroke-linecap="round"
+        opacity=".85"></path>${axis}
+      <text class="tick" x="${xRight+6}" y="10" text-anchor="start"
+        style="fill:${ink}">°F</text></g>`,
+  };
+}
+
+function tempScaleLegend() {
+  const on = state.showTemp;
+  return `<span data-temp="1" style="cursor:pointer;user-select:none;opacity:${on?1:.45}"
+    title="Click to hide or show the outdoor temperature line">
+    <i style="background:transparent;border-top:2px dashed var(--text-secondary);
+      height:0;width:14px;border-radius:0;vertical-align:middle"></i>Outdoor °F</span>`;
+}
+
+/* ---------------- trend: stacked kWh bars, or watt lines ---------------- */
+function renderTrend(d) {
+  const el = document.getElementById('trendChart');
+  const s = d.series, names = Object.keys(s.units);
+  const setLegend = () => document.getElementById('legend').innerHTML =
+    names.map(n => `<span data-unit="${n}"><i style="background:${colorFor(n)}"></i>${
+      roomOf(n)}</span>`).join('')
+    + (tempLegend ? tempLegend : '');
+
+  if (!s.t.length || (s.unit==='W' && s.t.length < 2)) {
+    tempLegend = ''; setLegend();
+    el.innerHTML = `<div class="empty">No data in this range yet.</div>`;
+    document.getElementById('trendSub').textContent = '';
+    return;
+  }
+  tempLegend = '';
+  const W = Math.max(300, el.clientWidth || 900), H = 280;
+  const padL = 52, padR = state.showTemp ? 46 : 12, padT = 26, padB = 28;
+  const x0 = padL, x1 = W - padR, y0 = H - padB, y1 = padT;
+
+  if (s.unit === 'W') return renderLines(d, el, {W,H,padL,padR,padT,padB}, setLegend);
+
+  /* stacked bars: one bucket per column */
+  const totals = s.t.map((_,i) => names.reduce((a,n) => a + (s.units[n][i]||0), 0));
+  const yMax = Math.max(...totals, .001);
+  const bw = Math.max(2, (x1-x0)/s.t.length - 2);
+  const yOf = v => y0 - (v/yMax)*(y0-y1);
+
+  const ticks = [0,.25,.5,.75,1].map(f => yMax*f);
+  const grid = ticks.map(v => `
+    <line class="gridline" x1="${x0}" x2="${x1}" y1="${yOf(v)}" y2="${yOf(v)}"></line>
+    <text class="tick" x="${x0-8}" y="${yOf(v)+4}" text-anchor="end">${fmt(v, yMax<2?2:1)}</text>`).join('');
+
+  const cols = s.t.map((ts,i) => {
+    const cx = x0 + (i+.5)*((x1-x0)/s.t.length);
+    let acc = 0;
+    const segs = names.map((n,k) => {
+      const v = s.units[n][i] || 0;
+      if (v <= 0) return '';
+      const top = yOf(acc+v), bot = yOf(acc); acc += v;
+      const h = Math.max(1, bot-top-2);   // 2px surface gap between segments
+      return `<rect x="${cx-bw/2}" y="${top}" width="${bw}" height="${h}"
+        rx="${h>4?2:0}" fill="${colorFor(n)}" data-unit="${n}"></rect>`;
+    }).join('');
+    return `<g class="col" data-i="${i}">
+      <rect x="${cx-((x1-x0)/s.t.length)/2}" y="${y1}" width="${(x1-x0)/s.t.length}"
+        height="${y0-y1}" fill="transparent"></rect>${segs}</g>`;
+  }).join('');
+
+  const step = Math.ceil(s.t.length / Math.max(3, Math.floor(W/130)));
+  const xlabels = s.t.map((ts,i) => i % step ? '' :
+    `<text class="tick" x="${x0+(i+.5)*((x1-x0)/s.t.length)}" y="${H-8}"
+      text-anchor="middle">${s.bucket >= 86400 ? dayLbl(ts)
+        : dayLbl(ts)+' '+clock(ts)}</text>`).join('');
+
+  const slot = (x1-x0)/s.t.length;
+  const bd = tempOverlay(d, i => x0 + (i+.5)*slot, y1, y0, x1);
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Energy per period by unit, with outdoor temperature overlaid">
+    ${grid}${cols}${xlabels}${bd.svg}
+    <line class="baseline" x1="${x0}" x2="${x1}" y1="${y0}" y2="${y0}"></line>
+    <text class="tick" x="${x0-8}" y="10" text-anchor="end">kWh</text></svg>`;
+
+  el.querySelectorAll('.col').forEach(g => {
+    const i = +g.dataset.i;
+    const rows = names.map((n,k) => ({n, v:s.units[n][i]||0, k}))
+                      .filter(r => r.v > 0).sort((a,b) => b.v-a.v);
+    g.addEventListener('mousemove', e => showTip(e,
+      `<b>${dayLbl(s.t[i])}${s.bucket < 86400 ? ' '+clock(s.t[i]) : ''}</b>` +
+      rows.map(r => `<div class="tr"><span><i style="display:inline-block;width:8px;
+        height:8px;border-radius:2px;margin-right:6px;background:${colorOf(r.k)}"></i>${r.n}</span>
+        <span>${fmt(r.v,2)} kWh</span></div>`).join('') +
+      `<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);padding-top:5px">
+        <span>Total</span><span>${fmt(totals[i],2)} kWh · $${fmt(totals[i]*d.rate,2)}</span></div>`
+      + (outdoorAt && outdoorAt(s.t[i])!=null
+          ? `<div class="tr"><span>Outdoor</span><span>${fmt(outdoorAt(s.t[i]),1)}°F</span></div>` : '')));
+    g.addEventListener('mouseleave', hideTip);
+    g.addEventListener('click', ev => {
+      const seg = ev.target.closest('rect[data-unit]');
+      if (seg) { hideTip(); toggleUnit(seg.dataset.unit, true); }
+    });
+  });
+
+  const per = s.bucket>=604800 ? 'week' : s.bucket>=86400 ? 'day' : s.bucket>=21600 ? '6 hours' : 'hour';
+  document.getElementById('trendTitle').textContent = `Energy over time — ${d.range.label}`;
+  document.getElementById('trendSub').textContent =
+    `kWh per ${per}, stacked by unit, shaded by outdoor temperature. `
+  + `Built from the ${d.resolution}.`;
+  tempLegend = tempScaleLegend();
+  if (bd.at) outdoorAt = bd.at;
+  setLegend();
+}
+
+function renderLines(d, el, g, setLegend) {
+  const s = d.series, names = Object.keys(s.units), t = s.t;
+  const {W,H,padL,padT,padB} = g; const padR = state.showTemp ? 44 : g.padR;
+  const maxW = Math.max(10, ...names.flatMap(n => s.units[n].filter(v => v!=null)));
+  const yMax = Math.ceil(maxW/100)*100 || 100;
+  const X = i => padL + (i/(t.length-1))*(W-padL-padR);
+  const Y = v => padT + (1 - v/yMax)*(H-padT-padB);
+  const ticks = [0,.25,.5,.75,1].map(f => Math.round(yMax*f));
+  const grid = ticks.map(v => `
+    <line class="gridline" x1="${padL}" x2="${W-padR}" y1="${Y(v)}" y2="${Y(v)}"></line>
+    <text class="tick" x="${padL-8}" y="${Y(v)+4}" text-anchor="end">${v}</text>`).join('');
+  const n = Math.min(Math.max(3, Math.floor(W/120)), t.length);
+  const times = Array.from({length:n},(_,k)=>Math.round(k*(t.length-1)/(n-1)))
+    .map(i => `<text class="tick" x="${X(i)}" y="${H-6}" text-anchor="middle">${clock(t[i])}</text>`).join('');
+  const paths = names.map((nm,i) => {
+    let dstr='', pen=false;
+    s.units[nm].forEach((v,j) => {
+      if (v==null) { pen=false; return; }
+      dstr += (pen?'L':'M') + X(j).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; pen=true;
+    });
+    return `<path d="${dstr}" fill="none" stroke="${colorFor(nm)}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"></path>`;
+  }).join('');
+
+  const bd = tempOverlay(d, i => X(i), padT, H-padB, W-padR);
+  tempLegend = tempScaleLegend();
+  outdoorAt = bd.at || null;
+  if (setLegend) setLegend();
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Power draw over time, with outdoor temperature overlaid">
+    ${grid}${times}
+    <line class="baseline" x1="${padL}" x2="${W-padR}" y1="${Y(0)}" y2="${Y(0)}"></line>
+    ${paths}
+    <g id="cross" style="display:none">
+      <line class="baseline" y1="${padT}" y2="${H-padB}" stroke-dasharray="3 3"></line>
+      ${names.map((nm)=>`<circle r="4" fill="${colorFor(nm)}" stroke="var(--surface-1)"
+        stroke-width="2"></circle>`).join('')}
+    </g>
+    ${bd.svg}
+    <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
+      fill="transparent" id="hit"></rect>
+    <text class="tick" x="${padL-8}" y="10" text-anchor="end">W</text></svg>`;
+
+  const svg = el.querySelector('svg'), cross = el.querySelector('#cross');
+  const vline = cross.querySelector('line'), dots = [...cross.querySelectorAll('circle')];
+  el.querySelector('#hit').addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const sx = (e.clientX-r.left)/r.width*W;
+    const i = Math.max(0, Math.min(t.length-1,
+      Math.round((sx-padL)/(W-padL-padR)*(t.length-1))));
+    cross.style.display='';
+    vline.setAttribute('x1',X(i)); vline.setAttribute('x2',X(i));
+    const rows = names.map((nm,k) => {
+      const v = s.units[nm][i];
+      dots[k].style.display = v==null ? 'none' : '';
+      if (v!=null) { dots[k].setAttribute('cx',X(i)); dots[k].setAttribute('cy',Y(v)); }
+      return v==null ? null : {nm,v,k};
+    }).filter(Boolean).sort((a,b)=>b.v-a.v);
+    showTip(e, `<b>${clock(t[i])}</b>` + rows.map(r =>
+      `<div class="tr"><span><i style="display:inline-block;width:8px;height:8px;
+        border-radius:2px;margin-right:6px;background:${colorFor(r.nm)}"></i>${roomOf(r.nm)}</span>
+        <span>${fmt(r.v)} W</span></div>`).join('')
+      + (outdoorAt && outdoorAt(t[i])!=null
+          ? `<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);
+             padding-top:5px"><span>Outdoor</span><span>${fmt(outdoorAt(t[i]),1)}°F</span></div>`
+          : ''));
+  });
+  el.querySelector('#hit').addEventListener('mouseleave', () => {
+    cross.style.display='none'; hideTip();
+  });
+
+  document.getElementById('trendTitle').textContent = `Power draw — ${d.range.label}`;
+  document.getElementById('trendSub').textContent =
+    'Watts per unit. Flat and low is idle; the steps are compressor cycles.';
+}
+
+/* ---------------- unit controls ----------------
+   These write to real hardware, so every control is disabled for a unit that
+   cannot receive the write -- the server refuses those too, but a control that
+   looks live and silently does nothing is worse than one that is visibly out. */
+const TARGET_MIN = 60, TARGET_MAX = 86;
+const MODES = [[1,'Cool'],[2,'Eco'],[0,'Fan']];
+const FANS  = [[0,'Auto'],[1,'Low'],[2,'Med'],[3,'High']];
+
+/* The three sync states need different words because they need different
+   actions: dropped can only be fixed at the wall, wedged is what Resync fixes,
+   ok still says when the unit last actually reported so it can be judged. */
+const SYNC = {
+  ok:      {dot:'var(--s3)', label:'Synced'},
+  wedged:  {dot:'var(--s2)', label:'Not syncing'},
+  dropped: {dot:'var(--s2)', label:'Dropped'},
+  unknown: {dot:'var(--text-muted)', label:'Unknown'},
+};
+
+function ago(s) {
+  if (s == null) return 'never';
+  if (s < 90) return `${Math.round(s)}s ago`;
+  if (s < 5400) return `${Math.round(s/60)} min ago`;
+  return `${(s/3600).toFixed(1)} h ago`;
+}
+
+function syncNote(u) {
+  const k = SYNC[u.sync] || SYNC.unknown;
+  const bar = `<div class="syncline"><span class="dot"
+    style="background:${k.dot}"></span><span>${k.label}</span>
+    <span class="when">reported ${ago(u.quiet_s)}</span></div>`;
+  if (u.sync === 'dropped')
+    return bar + `<div class="desync">No session with the cloud — the readings
+      below are its last known values, not current. Nothing sent can reach it,
+      so this one needs its power pulled at the wall.</div>`;
+  if (u.sync === 'wedged')
+    return bar + `<div class="desync">Still connected but it has stopped
+      reporting, which is when settings tend not to take. Resync re-sends
+      everything and cycles it in software.</div>`;
+  return bar + overrunNote(u);
+}
+
+/* Cooling nothing asked for. Distinct from a sync fault: the unit is talking
+   fine, it just is not acting on its own thermostat. */
+function overrunNote(u) {
+  if (!u.overrun || u.overrun === 'ok') return '';
+  const duty = u.duty==null ? '' :
+    ` Running ${Math.round(u.duty*100)}% of the hour${
+      u.floor_duty!=null ? ` against ${Math.round(u.floor_duty*100)}% for the rest of its floor` : ''}.`;
+  return `<div class="desync overrun">${
+    u.overrun === 'overcooling' ? 'Cooling with nothing asking for it.'
+                                : 'Working harder than the rest of its floor.'
+    } ${u.overrun_detail||''}${duty}</div>`;
+}
+
+function controlsFor(u) {
+  const dis = u.stale ? 'disabled' : '';
+  const unit = encodeURIComponent(u.name);
+  const seg = (field, opts, current) => opts.map(([v,label]) =>
+    `<button class="seg" data-unit="${unit}" data-field="${field}" data-value="${v}"
+       aria-pressed="${current==v}" ${dis}>${label}</button>`).join('');
+  // mode/fan arrive as labels, not codes, so compare against the label
+  const modeV = (MODES.find(([,l]) => l === u.mode) || [null])[0];
+  const fanV  = (FANS.find(([,l]) => l.toLowerCase() === String(u.fan).toLowerCase()
+                                  || (l==='Med' && u.fan==='Medium')) || [null])[0];
+  const t = u.target == null ? null : Math.round(u.target);
+  return `<div class="ctl">
+    <div class="ctl-row">
+      <div class="seg-group">${seg('power', [[1,'On'],[0,'Off']], u.on?1:0)}</div>
+      <div class="stepper">
+        <button class="seg" data-unit="${unit}" data-field="target"
+          data-value="${t==null?'':Math.max(TARGET_MIN,t-1)}"
+          ${dis||t==null?'disabled':''} aria-label="Cooler">−</button>
+        <span class="setpt">${t==null?'–':t}°</span>
+        <button class="seg" data-unit="${unit}" data-field="target"
+          data-value="${t==null?'':Math.min(TARGET_MAX,t+1)}"
+          ${dis||t==null?'disabled':''} aria-label="Warmer">+</button>
+      </div>
+    </div>
+    <div class="seg-group">${seg('mode', MODES, modeV)}</div>
+    <div class="seg-group">${seg('fan', FANS, fanV)}</div>
+  </div>`;
+}
+
+/* Every endpoint here answers JSON. Anything else means the request fell
+   through to the page itself, which is what an older serve.py does with a
+   route it does not have -- report that plainly rather than letting a JSON
+   parser error surface as "wrong syntax" or "did not match the pattern". */
+/* Which calls are worth narrating. Mirrors the rule serve.py uses for its own
+   terminal output, so the browser console and the terminal agree on what
+   counts as an action rather than each having its own idea. */
+const QUIET_PATHS = ['/api/summary', '/api/unit', '/api/docs',
+                     '/api/comparison', '/api/audit'];
+const SYNC_WRITES = ['auto=', 'overrun=', 'cooldown='];
+
+function isAction(path) {
+  const [base, query = ''] = path.split('?');
+  if (QUIET_PATHS.includes(base)) return false;
+  // /api/sync is a read unless it carries a setting
+  if (base === '/api/sync') return SYNC_WRITES.some(k => query.includes(k));
+  return true;
+}
+
+/* One collapsed group per action: a single readable line by default, with the
+   request and full response one click away. The wording comes from the
+   server's own `_action` where it sent one, so the console and the terminal
+   describe the same event identically rather than each parsing the URL. */
+const LOG_CSS = {
+  badge: 'background:#2a78d6;color:#fff;font-weight:700;padding:1px 6px;'
+       + 'border-radius:3px;margin-right:2px',
+  ok:    'color:#1baf7a;font-weight:700',
+  fail:  'color:#eb6834;font-weight:700',
+  what:  'color:inherit;font-weight:600',
+  who:   'color:#8a7fd0;font-weight:500',
+  dim:   'color:#898781;font-weight:400',
+  reset: 'color:inherit;font-weight:400',
+};
+
+function logAction(path, d, ms) {
+  const a = (d && d._action) || null;
+  const ok = a ? a.ok !== false : !d || d.ok !== false;
+  const what = a ? a.action : decodeURIComponent(path.split('?')[0]);
+  const who = a && a.target ? a.target : '';
+  const note = (a && a.detail) || (d && (d.detail || d.reason)) || '';
+
+  console.groupCollapsed(
+    `%cWINDMILL%c ${ok ? '✓' : '✗'}%c ${what}%c${who ? '  ' + who : ''}%c  ${ms}ms`
+    + `%c${note ? '\n           ' + note : ''}`,
+    LOG_CSS.badge, ok ? LOG_CSS.ok : LOG_CSS.fail, LOG_CSS.what,
+    LOG_CSS.who, LOG_CSS.dim, ok ? LOG_CSS.dim : LOG_CSS.fail);
+  console.log('%crequest %c%s', LOG_CSS.dim, LOG_CSS.reset, decodeURIComponent(path));
+  console.log('%cresponse', LOG_CSS.dim, d);
+  console.groupEnd();
+}
+
+async function api(path) {
+  const t = performance.now();
+  const r = await fetch(path);
+  const body = await r.text();
+  const ctype = r.headers.get('content-type') || '';
+  if (!ctype.includes('json')) {
+    throw new Error('This build of the dashboard is newer than the running '
+      + 'serve.py — restart it to pick up the control endpoints.');
+  }
+  let d;
+  try { d = JSON.parse(body); }
+  catch (e) { throw new Error(`Bad response from ${path}`); }
+  if (isAction(path)) logAction(path, d, Math.round(performance.now() - t));
+  return d;
+}
+
+/* One control write, then a reload so the card reflects what the unit actually
+   took rather than what we asked for -- the two differ when a unit is wedged. */
+async function sendControl(btn) {
+  const {unit, field, value} = btn.dataset;
+  if (value === '') return;
+  const group = btn.closest('.ctl');
+  group.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    const r = await api(`/api/control?unit=${unit}&field=${field}&value=${value}`);
+    if (!r.ok) flash(group, r.detail || r.reason || 'Refused');
+  } catch (e) {
+    flash(group, String(e));
+  }
+  await load();
+}
+
+/* Apply one setting to every unit on a floor. Each unit is written
+   independently server-side, so a partial result is reported as such rather
+   than as a blanket success. */
+async function sendFloorControl(btn) {
+  const {floor, field, value} = btn.dataset;
+  if (value === '') return;
+  const head = btn.closest('.floor-top');
+  head.querySelectorAll('button').forEach(b => b.disabled = true);
+  try {
+    const r = await api(`/api/floor/control?floor=${floor}&field=${field}&value=${value}`);
+    flash(head, r.ok ? `Set ${r.applied.length} units.` : r.detail, r.ok);
+  } catch (e) {
+    flash(head, String(e.message || e));
+  }
+  await load();
+}
+
+async function assignFloor(inp) {
+  const unit = inp.dataset.unit;
+  inp.disabled = true;
+  try {
+    await api(`/api/floors?unit=${unit}&floor=${encodeURIComponent(inp.value.trim())}`);
+  } catch (e) {
+    flash(inp.closest('.card'), String(e.message || e));
+  }
+  inp.disabled = false;
+  await load();
+}
+
+/* Resync a whole floor, or every unit when no floor is given. */
+async function resyncMany(btn, floor) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Resyncing…';
+  const where = btn.closest('.floor-top') || btn.parentElement;
+  try {
+    const r = await api('/api/resync-all' + (floor ? `?floor=${floor}` : ''));
+    btn.textContent = r.ok ? 'Restored' : 'Partial';
+    flash(where, r.ok ? `Restored ${r.applied.length} units to saved settings.`
+                      : r.detail, r.ok);
+    await load();
+  } catch (e) {
+    btn.textContent = 'Failed';
+    flash(where, String(e.message || e));
+  }
+  setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 4000);
+}
+
+function flash(el, msg, ok) {
+  const n = document.createElement('div');
+  n.className = ok ? 'ctl-ok' : 'ctl-err';
+  n.textContent = msg;
+  el.appendChild(n);
+  setTimeout(() => n.remove(), 6000);
+}
+
+/* ---------------- cards + table ---------------- */
+function renderCards(d) {
+  const ds = d.totals.desynced || [];
+  document.getElementById('unitsSub').textContent =
+    `${d.totals.online} of ${d.totals.count} reporting. Energy figures cover ` +
+    `${d.range.label.toLowerCase()}.` +
+    (ds.length ? ` ${ds.join(', ')} ${ds.length>1?'have':'has'} stopped syncing — ` +
+                 `power-cycle to bring ${ds.length>1?'them':'it'} back.` : '');
+  // Group by floor so a floor can be driven as one thing. Unassigned units get
+  // their own group at the end rather than disappearing.
+  const groups = new Map();
+  d.units.forEach(u => {
+    const k = u.floor || '';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(u);
+  });
+  const ordered = [...groups.entries()].sort((a, b) =>
+    (a[0] === '') - (b[0] === '') ||
+    a[0].localeCompare(b[0], undefined, {numeric: true}));
+
+  const floorNames = d.totals.floors || [];
+  document.getElementById('floorNames').innerHTML =
+    floorNames.map(f => `<option value="${f}">`).join('');
+  document.getElementById('cards').innerHTML = ordered.map(([floor, us]) =>
+    `<div class="floor">
+       ${floorHeader(floor, us)}
+       <div class="cards-inner">${us.map(u => cardFor(u, d, floorNames)).join('')}</div>
+     </div>`).join('');
+
+}
+
+/* One delegated listener for the whole card area, bound once at startup.
+   Re-binding per render accumulated handlers, and "Resync floor" carries both
+   `resync-floor` and `seg`, so selector-based binding gave it two different
+   actions. Dispatching on the button that was actually clicked has neither
+   problem. Most specific class first. */
+document.getElementById('cards').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.classList.contains('info'))
+    return openUnit(decodeURIComponent(b.dataset.unit));
+  if (b.classList.contains('resync-floor'))
+    return resyncMany(b, b.dataset.floor);
+  if (b.classList.contains('resync'))
+    return resync(b);
+  if (b.classList.contains('seg'))
+    return b.closest('.floor-ctl') ? sendFloorControl(b) : sendControl(b);
+});
+
+document.getElementById('cards').addEventListener('change', e => {
+  if (e.target.classList.contains('floor-set')) assignFloor(e.target);
+});
+
+/* A floor's own controls. The setpoint shown is the one every unit on the
+   floor agrees on; when they disagree it shows a dash rather than picking one
+   arbitrarily, since stepping from a number nobody is set to would be a lie. */
+function floorHeader(floor, us) {
+  const label = floor || 'Unassigned';
+  const targets = [...new Set(us.map(u => u.target == null ? null : Math.round(u.target)))];
+  const t = targets.length === 1 ? targets[0] : null;
+  const live = us.filter(u => u.sync !== 'dropped').length;
+  const f = encodeURIComponent(floor);
+  const seg = (field, opts) => opts.map(([v, l]) =>
+    `<button class="seg" data-floor="${f}" data-field="${field}" data-value="${v}"
+       ${floor ? '' : 'disabled'}>${l}</button>`).join('');
+  if (!floor)
+    return `<div class="floor-top"><h3>${label}</h3>
+      <span class="floor-sub">Assign these to a floor to control them together.</span></div>`;
+  return `<div class="floor-top">
+    <h3>${label}</h3>
+    <span class="floor-sub">${us.length} unit${us.length>1?'s':''}${
+      live < us.length ? `, ${us.length-live} unreachable` : ''}</span>
+    <div class="floor-ctl">
+      <div class="stepper">
+        <button class="seg" data-floor="${f}" data-field="target"
+          data-value="${t==null?'':Math.max(TARGET_MIN,t-1)}"
+          ${t==null?'disabled title="Units are set to different temperatures"':''}
+          aria-label="Whole floor cooler">−</button>
+        <span class="setpt">${t==null?'mixed':t+'°'}</span>
+        <button class="seg" data-floor="${f}" data-field="target"
+          data-value="${t==null?'':Math.min(TARGET_MAX,t+1)}"
+          ${t==null?'disabled title="Units are set to different temperatures"':''}
+          aria-label="Whole floor warmer">+</button>
+      </div>
+      <div class="seg-group">${seg('power', [[1,'All on'],[0,'All off']])}</div>
+      <div class="seg-group">${seg('mode', MODES)}</div>
+      <button class="resync-floor seg" data-floor="${f}"
+        title="Resync every unit on this floor to its saved settings">Resync floor</button>
+    </div>
+  </div>`;
+}
+
+/* One labelled stat. The label is the heading rather than a left-hand column,
+   so several sit side by side and read across instead of down. */
+function metric(label, value, title) {
+  return `<div class="metric"${title?` title="${title}"`:''}>
+    <span class="k">${label}</span><span class="v">${value}</span></div>`;
+}
+
+function cardFor(u, d, floorNames) {
+  const off = !u.online;
+  // "desynced" is a different fact from "off": the cloud still has values for
+  // it, they just stopped being true. Say so rather than showing them plainly.
+  const st = u.sync === 'dropped' ? 'Dropped'
+           : u.sync === 'wedged'  ? 'Not syncing'
+           : (u.on ? `${u.mode} · fan ${u.fan}` : 'Off');
+  const mostly = u.complete && u.est_share > 50;
+  return `<div class="card" style="${off?'opacity:.55':''}">
+    <div class="top"><span class="swatch" style="background:${colorFor(u.name)}"></span>
+      <span class="nm">${u.display || u.name}</span><span class="pill">${st}</span>
+      <button class="info" data-unit="${encodeURIComponent(u.name)}"
+        title="Full history for this unit" aria-label="Details">i</button></div>
+    ${syncNote(u)}
+      ${u.prior_room?`<div class="row" style="margin:-8px 0 8px"><span
+        style="font-size:11px">was ${u.prior_room} before ${d.moved_on}</span><span></span></div>`:''}
+    <div class="temps"><span class="now">${u.temp==null?'–':fmt(u.temp)}°</span>
+      <span class="tgt">set to ${u.target==null?'–':fmt(u.target)}°</span></div>
+    ${controlsFor(u)}
+    <div class="metrics">
+      ${metric('Drawing', `${fmt(u.watts)} W`)}
+      ${metric('Energy', u.complete ? fmt(u.kwh,2)+' kWh'+(mostly?' *':'') : 'no data')}
+      ${metric('Cost', u.complete?'$'+fmt(u.cost,2):'–')}
+      ${metric('Compressor', u.complete?dur(u.cooling_min):'–')}
+      ${metric('Share', u.complete?fmt(u.share,1)+'%':'–')}
+      ${u.failures==null?'':metric('Sync failures', fmt(u.failures))}
+      ${u.pins && u.pins.v113 != null ? metric('Revision',
+        `${u.pins.v113}${u.pins.v113 == 3 ? ' <span class="tag bad">!</span>' : ''}`,
+        u.pins.v113 == 3
+          ? 'v113=3. Every unit reporting this accumulates protocol failures and overcools; every unit reporting 0 does not. Constant per unit, so a resync cannot fix it.'
+          : 'v113. Units reporting 0 do not show the protocol-failure fault.') : ''}
+    </div>
+    ${mostly?`<p class="est-note">* ${fmt(u.est_share,0)}% estimated
+      (${(u.est_methods||[]).join(', ')})</p>`:''}
+    <div class="metrics foot">
+      ${u.saved?metric('Saved settings', u.saved,
+        `Restored on resync. Captured ${u.saved_at?clock(u.saved_at):'—'}`):''}
+      <label class="metric"><span class="k">Floor</span>
+        <input class="floor-set" list="floorNames" value="${u.floor||''}"
+          placeholder="unassigned" data-unit="${encodeURIComponent(u.name)}"></label>
+      <button class="resync" data-unit="${encodeURIComponent(u.name)}"
+        ${u.sync==='dropped'?'disabled title="Unreachable — needs mains power removed"':
+          `title="Power-cycle in software and restore ${u.saved||'its settings'}"`}
+        >Resync</button>
+    </div></div>`;
+}
+
+/* Software stand-in for the unplug/replug ritual: re-push every setting and
+   cycle V0. Fixes a unit that is connected but has stopped acting on what the
+   cloud tells it -- which is the usual case. A unit that has dropped its
+   session cannot be reached at all, so its button is disabled above. */
+async function resync(btn) {
+  const unit = btn.dataset.unit, label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Resyncing…';
+  try {
+    const r = await api(`/api/resync?unit=${unit}`);
+    btn.textContent = r.ok ? 'Restored' : 'Failed';
+    btn.title = r.detail || r.reason || '';
+    // Say what it was put back to -- a resync that silently loses a setpoint
+    // is exactly the failure this is meant to prevent.
+    flash(btn.closest('.card'), r.ok ? `Restored ${r.preserved}.` : r.detail, r.ok);
+    if (r.ok) load();
+  } catch (e) {
+    btn.textContent = 'Failed'; btn.title = String(e);
+  }
+  setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 4000);
+}
+
+function renderTable(d) {
+  const units = d.units;
+  // vN in numeric order, then synthetic pins (cN) last so they never sort into
+  // the datastream numbering they are not part of
+  const pins = [...new Set(units.flatMap(u => Object.keys(u.pins)))]
+    .sort((a,b) => (b[0]==='v') - (a[0]==='v') ||
+                   parseInt(a.slice(1)) - parseInt(b.slice(1)));
+  const derived = [
+    ['Energy (kWh)', u => u.complete?fmt(u.kwh,3):'no data', fmt(d.totals.kwh,3)],
+    ['Cost', u => u.complete?'$'+fmt(u.cost,2):'–', '$'+fmt(d.totals.cost,2)],
+    ['Compressor time', u => u.complete?dur(u.cooling_min):'–', dur(d.totals.cooling_min)],
+    ['Peak draw (W)', u => fmt(u.peak_w), '–'],
+    ['Share of total', u => u.complete?fmt(u.share,1)+'%':'–', '100%'],
+    ['History coverage', u => fmt(u.coverage*100,0)+'%', '–'],
+    ['of which reconstructed', u => u.est_kwh>0.01
+        ? `${fmt(u.est_kwh,2)} kWh (${fmt(u.est_share,0)}%)` : '–',
+      d.totals.est_kwh>0.01?fmt(d.totals.est_kwh,2)+' kWh':'–'],
+    ['estimate method', u => (u.est_methods||[]).join(', ') || '–', '–'],
+  ];
+  document.getElementById('table').innerHTML = `<table>
+    <thead><tr><th>Metric</th>${units.map(u=>`<th>${u.display || u.name}${
+      u.prior_room?`<div style="font-weight:400;opacity:.65">was ${u.prior_room}</div>`:''
+      }</th>`).join('')}<th>Total</th></tr></thead>
+    <tbody>
+      ${derived.map(([l,f,tot]) => `<tr><td class="key">${l}</td>
+        ${units.map(u=>`<td>${f(u)}</td>`).join('')}<td>${tot}</td></tr>`).join('')}
+      <tr><td colspan="${units.length+2}" style="padding-top:16px;color:var(--text-muted);
+        font-size:12px">Live datastreams</td></tr>
+      ${pins.map(p => {
+        const known = PIN_LABELS[p];
+        const label = known ? `${known} <span style="opacity:.5">${p.toUpperCase()}</span>`
+                            : `<span style="opacity:.7">${p.toUpperCase()}</span> unmapped`;
+        return `<tr><td class="key">${label}</td>${units.map(u => {
+          const v = u.pins[p];
+          if (v === undefined) return `<td class="unmapped">–</td>`;
+          const shown = PIN_FMT[p] ? PIN_FMT[p](v)
+            : (typeof v==='number' ? fmt(v, Number.isInteger(v)?0:3) : v);
+          return `<td class="${known?'':'unmapped'}">${shown}</td>`;
+        }).join('')}<td class="unmapped">–</td></tr>`;
+      }).join('')}
+    </tbody></table>`;
+}
+
+/* ---------------- temperature vs energy ---------------- */
+function renderTemps(d) {
+  const el = document.getElementById('tempChart');
+  const tp = d.temps, sec = document.getElementById('tempSection');
+  if (!tp || tp.t.length < 2) {
+    sec.hidden = true; return;
+  }
+  sec.hidden = false;
+  const t = tp.t;
+  const vals = [...tp.indoor, ...tp.outdoor].filter(v => v != null);
+  const lo = Math.floor(Math.min(...vals)/5)*5, hi = Math.ceil(Math.max(...vals)/5)*5;
+  const W = Math.max(300, el.clientWidth || 900), H = 230;
+  const padL = 52, padR = state.showTemp ? 46 : 12, padT = 26, padB = 28;
+  const X = i => padL + (i/(t.length-1))*(W-padL-padR);
+  const Y = v => padT + (1 - (v-lo)/(hi-lo || 1))*(H-padT-padB);
+
+  const ticks = [0,.25,.5,.75,1].map(f => Math.round(lo + (hi-lo)*f));
+  const grid = ticks.map(v => `
+    <line class="gridline" x1="${padL}" x2="${W-padR}" y1="${Y(v)}" y2="${Y(v)}"></line>
+    <text class="tick" x="${padL-8}" y="${Y(v)+4}" text-anchor="end">${v}°</text>`).join('');
+
+  const line = (arr, color, width) => {
+    let s='', pen=false;
+    arr.forEach((v,i) => {
+      if (v==null) { pen=false; return; }
+      s += (pen?'L':'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' '; pen=true;
+    });
+    return `<path d="${s}" fill="none" stroke="${color}" stroke-width="${width}"
+      stroke-linejoin="round" stroke-linecap="round"></path>`;
+  };
+
+  const n = Math.min(Math.max(3, Math.floor(W/120)), t.length);
+  const xl = Array.from({length:n},(_,k)=>Math.round(k*(t.length-1)/(n-1)))
+    .map(i => `<text class="tick" x="${X(i)}" y="${H-8}" text-anchor="middle">${
+      tp.bucket>=86400 ? dayLbl(t[i]) : dayLbl(t[i])+' '+clock(t[i])}</text>`).join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Indoor and outdoor temperature over time">
+    ${grid}${xl}
+    <line class="baseline" x1="${padL}" x2="${W-padR}" y1="${H-padB}" y2="${H-padB}"></line>
+    ${line(tp.outdoor, css('--s2'), 2)}
+    ${line(tp.indoor, css('--s1'), 2)}
+    <g id="tcross" style="display:none">
+      <line class="baseline" y1="${padT}" y2="${H-padB}" stroke-dasharray="3 3"></line>
+      <circle r="4" fill="${css('--s2')}" stroke="var(--surface-1)" stroke-width="2"></circle>
+      <circle r="4" fill="${css('--s1')}" stroke="var(--surface-1)" stroke-width="2"></circle>
+    </g>
+    <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
+      fill="transparent" id="thit"></rect>
+    <text class="tick" x="${padL-8}" y="10" text-anchor="end">°F</text></svg>`;
+
+  const svg = el.querySelector('svg'), cr = el.querySelector('#tcross');
+  const vl = cr.querySelector('line'), dots=[...cr.querySelectorAll('circle')];
+  const energyAt = new Map(d.series.t.map((ts,i) =>
+    [ts, Object.keys(d.series.units).reduce((a,n2)=>a+(d.series.units[n2][i]||0),0)]));
+  el.querySelector('#thit').addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const sx = (e.clientX-r.left)/r.width*W;
+    const i = Math.max(0, Math.min(t.length-1,
+      Math.round((sx-padL)/(W-padL-padR)*(t.length-1))));
+    cr.style.display=''; vl.setAttribute('x1',X(i)); vl.setAttribute('x2',X(i));
+    [tp.outdoor[i], tp.indoor[i]].forEach((v,k) => {
+      dots[k].style.display = v==null?'none':'';
+      if (v!=null){ dots[k].setAttribute('cx',X(i)); dots[k].setAttribute('cy',Y(v)); }
+    });
+    const kwh = energyAt.get(t[i]);
+    const spread = (tp.outdoor[i]!=null && tp.indoor[i]!=null)
+      ? tp.outdoor[i]-tp.indoor[i] : null;
+    showTip(e, `<b>${dayLbl(t[i])}${tp.bucket<86400?' '+clock(t[i]):''}</b>
+      <div class="tr"><span>Outdoor</span><span>${fmt(tp.outdoor[i],1)}°F</span></div>
+      <div class="tr"><span>Indoor</span><span>${fmt(tp.indoor[i],1)}°F</span></div>
+      ${spread!=null?`<div class="tr"><span>Difference</span><span>${fmt(spread,1)}°F</span></div>`:''}
+      ${kwh!=null?`<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);
+        padding-top:5px"><span>Energy</span><span>${fmt(kwh,2)} kWh</span></div>`:''}`);
+  });
+  el.querySelector('#thit').addEventListener('mouseleave', () => {
+    cr.style.display='none'; hideTip();
+  });
+
+  // correlation between outdoor temperature and energy, same buckets
+  const pairs = t.map((ts,i) => [tp.outdoor[i], energyAt.get(ts)])
+                 .filter(([a,b]) => a!=null && b!=null);
+  let corr = null;
+  if (pairs.length > 4) {
+    const n2=pairs.length, mx=pairs.reduce((a,p)=>a+p[0],0)/n2, my=pairs.reduce((a,p)=>a+p[1],0)/n2;
+    const cov=pairs.reduce((a,p)=>a+(p[0]-mx)*(p[1]-my),0)/n2;
+    const sx=Math.sqrt(pairs.reduce((a,p)=>a+(p[0]-mx)**2,0)/n2);
+    const sy=Math.sqrt(pairs.reduce((a,p)=>a+(p[1]-my)**2,0)/n2);
+    if (sx>0 && sy>0) corr = cov/(sx*sy);
+  }
+  const per = tp.bucket>=604800?'week':tp.bucket>=86400?'day':tp.bucket>=21600?'6 hours':'hour';
+  document.getElementById('tempTitle').textContent = `Temperature — ${d.range.label}`;
+  document.getElementById('tempSub').textContent =
+    `Outdoor vs the average indoor reading across units, per ${per}, on the same time axis `
+  + `as the energy chart above.`
+  + (corr!=null ? `  Outdoor temperature and energy use correlate at r = ${fmt(corr,2)}.` : '');
+}
+
+/* ---------------- before vs after ---------------- */
+function renderCompare(c) {
+  const sec = document.getElementById('compareSection');
+  const curveSec = document.getElementById('curveSection');
+  if (!c || !c.available) {
+    sec.hidden = true; curveSec.hidden = true;
+    if (c && c.reason) document.getElementById('compareNote').textContent = c.reason;
+    return;
+  }
+  sec.hidden = false;
+  curveSec.hidden = !c.payback_curve;
+  const money = v => (v<0?'−':'+') + '$' + fmt(Math.abs(v),2);
+  const band = (lo,hi) => Math.abs(hi-lo) < 0.005 ? money(lo) : `${money(lo)} to ${money(hi)}`;
+  const nUnits = c.new_units.length;
+
+  const rows = c.rows.map(r => {
+    const cheaper = r.delta_hi < 0;
+    return `<tr>
+      <td class="key">${fmt(r.mean_f)}°F</td>
+      <td class="unmapped">~${fmt(r.mean_f + (c.climate?.high_gap ?? 7))}°F</td>
+      <td>${fmt(r.before,1)}</td>
+      <td>${fmt(r.after_lo,1)}${r.after_hi!==r.after_lo?'–'+fmt(r.after_hi,1):''}</td>
+      <td style="color:${cheaper?'var(--text-primary)':'inherit'}">
+        ${band(r.delta_lo*c.rate, r.delta_hi*c.rate)}</td>
+      <td>${band(r.delta_lo*c.rate*30, r.delta_hi*c.rate*30)}</td></tr>`;
+  }).join('');
+
+  const be = c.breakeven_lo
+    ? (c.breakeven_hi && Math.abs(c.breakeven_hi-c.breakeven_lo) > 0.1
+        ? `${fmt(c.breakeven_lo,1)}–${fmt(c.breakeven_hi,1)}°F`
+        : `${fmt(c.breakeven_lo,1)}°F`)
+    : 'never — the newer setup is cheaper at every temperature';
+
+  document.getElementById('compareTable').innerHTML = `<table>
+    <thead><tr><th>Daily mean</th><th>≈ that day's high</th><th>Before (kWh)</th>
+      <th>After (kWh)</th><th>Extra / day</th><th>Extra / month</th></tr></thead>
+    <tbody>${rows}
+      <tr><td class="key" colspan="4" style="padding-top:14px">
+        <strong>Break-even</strong> — the two setups cost the same at a daily mean of</td>
+        <td colspan="2" style="padding-top:14px"><strong>${be}</strong></td></tr>
+    </tbody></table>`;
+
+  // headline: how many hot days a season would need for this to pay for itself
+  const pb = c.payback;
+  if (pb) {
+    const tiles = [];
+    if (pb.possible) {
+      tiles.push(['Hot days needed to break even', fmt(pb.days_needed,1), 'days',
+        `at ${fmt(pb.at_f,1)}°F, the hottest on record`]);
+      tiles.push(['Your summers actually deliver', fmt(pb.days_available,1), 'days',
+        `per season that save money — ` +
+        (pb.days_available >= pb.days_needed ? 'enough' : 'not enough')]);
+    } else {
+      tiles.push(['Hot days needed to break even', 'Never', '',
+        `even at ${fmt(pb.at_f,1)}°F it costs ${fmt(pb.delta_at_hottest,1)} kWh more per day`]);
+      tiles.push(['Break-even would need', fmt(c.breakeven_lo,0)+'°F', 'daily mean',
+        `${fmt(c.breakeven_lo - pb.at_f,0)}°F hotter than anything on record`]);
+    }
+    tiles.push(['Cost per cooling season', '$'+fmt(pb.season_deficit_cost,0), '',
+      `${fmt(pb.season_deficit_kwh,0)} kWh across ${pb.seasons.join(', ')} weather`]);
+    document.getElementById('paybackStats').innerHTML = tiles.map(([k,v,u,n]) =>
+      `<div class="stat"><div class="k">${k}</div>
+        <div class="v">${v}${u?`<span class="u">${u}</span>`:''}</div>
+        <div class="n">${n}</div></div>`).join('');
+  } else {
+    document.getElementById('paybackStats').innerHTML = '';
+  }
+
+  document.getElementById('compareTitle').textContent =
+    `Before vs after — ${nUnits} unit${nUnits>1?'s':''} added ${c.change}`;
+  document.getElementById('compareSub').innerHTML =
+    `Daily household kWh regressed on cooling degree days, so weather is controlled for. `
+  + `Each degree warmer narrows the gap by about $${fmt(c.per_degree,3)}/day. `
+  + `Fits: before <strong>${fmt(c.before.a,1)} + ${fmt(c.before.b,2)}×CDD</strong> `
+  + `(n=${c.before.n}, R²=${fmt(c.before.r2,2)}), after `
+  + `<strong>${fmt(c.after.a,1)} + ${fmt(c.after.b,2)}×CDD</strong> `
+  + `(n=${c.after.n}, R²=${fmt(c.after.r2,2)}).`;
+
+  // how many days above a given temperature a summer would need
+  const cv = c.payback_curve;
+  if (cv) {
+    const rows = cv.rows.map(r => {
+      const imp = r.days_needed == null;
+      return `<tr${imp?' style="opacity:.62"':''}>
+        <td class="key">${fmt(r.temp_f)}°F</td>
+        <td>${r.saves_per_day!=null ? fmt(r.saves_per_day,2)+' kWh' : '—'}</td>
+        <td>${r.saves_per_day!=null ? '$'+fmt(r.saves_per_day*c.rate,3) : '—'}</td>
+        <td>${imp ? 'never' : fmt(r.days_needed)+' days'}</td>
+        <td>${imp ? '—' : fmt(r.pct_of_summer)+'%'}</td></tr>`;
+    }).join('');
+    document.getElementById('curveTable').innerHTML = `<table>
+      <thead><tr><th>If a day's mean hits</th><th>It saves</th><th></th>
+        <th>Days needed per summer</th><th>Of a ${cv.season_len}-day summer</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+    document.getElementById('curveSub').innerHTML =
+      `Take a real summer, replace its hottest days with days at each temperature, and `
+    + `find how many it takes for the season to net out. Below `
+    + `${fmt(c.breakeven_lo,0)}°F a day costs more rather than less, so no number of `
+    + `them ever pays off — those rows read <em>never</em>. `
+    + `The hottest daily mean in ${(c.climate?.seasons||[]).join(', ')} was `
+    + `<strong>${fmt(cv.hottest_on_record,1)}°F</strong>.`;
+  }
+
+  const notes = [];
+  if (c.climate) notes.push(
+    `In ${c.climate.seasons.join(', ')} local summers, days at or above break-even `
+  + `occurred ${fmt(c.climate.days_above_be,1)}× per season `
+  + `(hottest daily mean on record ${fmt(c.climate.hottest_mean,1)}°F). `
+  + `Net effect over a full cooling season: ${money(c.climate.season_cost)}.`);
+  if (c.extrapolated) notes.push(
+    `Break-even is extrapolated — it sits above the hottest day in the fit `
+  + `(${fmt(c.observed_hi_f,1)}°F daily mean), so treat it as "well beyond anything `
+  + `observed" rather than a precise temperature.`);
+  if (c.imputed.length) notes.push(
+    `${c.imputed.join(', ')} lack${c.imputed.length>1?'':'s'} history for this period, `
+  + `so ${c.imputed.length>1?'they are':'it is'} imputed at `
+  + `${fmt(c.impute_band[0],1)}–${fmt(c.impute_band[1],1)} kWh/day from sibling units — `
+  + `that is the range shown in every figure above.`);
+  if (c.estimate_heavy) notes.push(
+    `${fmt(c.est_share_after,0)}% of the after period and ${fmt(c.est_share_before,0)}% `
+  + `of the before period is reconstructed rather than measured — these figures `
+  + `shift when real data replaces it.`);
+  const h = c.history || [];
+  if (h.length > 1) {
+    const first = h[0], last = h[h.length-1];
+    notes.push(`Rolling: recomputed on every refresh. Season cost estimate was `
+      + `$${fmt(first.season_cost,0)} on ${first.day}, now $${fmt(last.season_cost,0)} `
+      + `(${h.length} daily snapshots).`);
+  } else {
+    notes.push('Rolling: recomputed from the database on every refresh, so these '
+      + 'figures sharpen automatically as more days accumulate.');
+  }
+  if (c.weak) notes.push(
+    `Thin fit (n=${c.before.n} before, ${c.after.n} after). Directional only; `
+  + `it sharpens as more days accumulate.`);
+  document.getElementById('compareNote').innerHTML = notes.join('<br>');
+}
+
+/* ---------------- load ---------------- */
+async function load() {
+  const q = state.range ? `range=${state.range}`
+                        : `from=${Math.floor(state.from)}&to=${Math.floor(state.to)}`;
+  try {
+    const d = await (await fetch('/api/summary?'+q)).json();
+    if (d.error) throw new Error(d.error);
+    state.data = d;
+    if (COLOR_IDX.size !== d.units.length)
+      COLOR_IDX = new Map(d.units.map((u,i) => [u.name, i]));
+    ROOM = new Map(d.units.map(u => [u.name, u.display || u.name]));
+    state.hidden = new Set([...state.hidden].filter(n => COLOR_IDX.has(n)));
+    const view = filtered(d);
+    document.querySelectorAll('#presets button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.range === state.range)));
+    const rateEl = document.getElementById('rate');
+    if (document.activeElement !== rateEl) rateEl.value = d.rate;
+    if (!document.getElementById('from').value) {
+      document.getElementById('from').value = isoDay(d.range.from);
+      document.getElementById('to').value = isoDay(d.range.to);
+    }
+    renderChips(d);
+    renderTabs();
+    renderStats(view); renderCards(d); renderTable(view);
+    redrawTab();   // only the visible tab's charts, at their real width
+    loadSync();
+    fetch('/api/comparison').then(r => r.json()).then(d => {
+      renderCompare(d);
+      const shown = ['curveSection','compareSection']
+        .some(id => !document.getElementById(id).hidden);
+      document.getElementById('analysisEmpty').hidden = shown;
+    }).catch(() => {});
+    document.getElementById('meta').innerHTML =
+      `<span class="dot"></span> live · updated ${clock(d.updated)}`
+      + (state.hidden.size ? ` · showing ${view.units.length} of ${d.units.length} units` : '');
+    document.getElementById('coverage').textContent = d.coverage.start
+      ? `History starts ${new Date(d.coverage.start*1000).toLocaleString()}. `
+      + `Windmill retains 30 days; everything older accumulates here only while serve.py runs.`
+      : 'No history stored yet.';
+  } catch (e) {
+    document.getElementById('meta').textContent = 'error: ' + e.message;
+  }
+}
+/* ---------------- one unit, everything it reported ----------------
+   Stacked panels on a shared time axis rather than one chart with four scales:
+   watts, degrees, dBm and a failure count share no units, and squeezing them
+   onto common axes would only make them comparable-looking, not comparable.
+
+   Every series is drawn as a step, not a slope. Readings are written on change
+   and carried forward, so the value between two samples is the earlier one --
+   interpolating would draw a gradual drift the unit never reported. */
+
+const UM = { unit:null, range:'24h', data:null };
+const UM_RANGES = [['6h','6h'],['24h','24h'],['7d','7 days'],['30d','30 days']];
+
+async function openUnit(name) {
+  UM.unit = name;
+  document.getElementById('unitModal').hidden = false;
+  document.getElementById('umTitle').textContent = ROOM.get(name) || name;
+  document.getElementById('umChart').innerHTML =
+    '<p class="note">Loading…</p>';
+  await loadUnit();
+}
+
+function closeUnit() {
+  document.getElementById('unitModal').hidden = true;
+  UM.unit = null; UM.data = null;
+}
+
+async function loadUnit() {
+  if (!UM.unit) return;
+  document.getElementById('umRanges').innerHTML = UM_RANGES.map(([r,l]) =>
+    `<button data-range="${r}" aria-pressed="${UM.range===r}">${l}</button>`).join('');
+  document.querySelectorAll('#umRanges button').forEach(b =>
+    b.addEventListener('click', () => { UM.range = b.dataset.range; loadUnit(); }));
+  try {
+    const d = await api(`/api/unit?unit=${encodeURIComponent(UM.unit)}&range=${UM.range}`);
+    if (d.error) throw new Error(d.error);
+    UM.data = d;
+    renderUnitDetail(d);
+  } catch (e) {
+    // Say which call failed and what to do about it; a blank panel just looks
+    // like the chart is still loading.
+    document.getElementById('umChart').innerHTML =
+      `<p class="note"><b>Could not load this unit's history.</b><br>${e.message||e}
+       <br>Endpoint: <code>/api/unit?unit=${UM.unit}&range=${UM.range}</code></p>`;
+    document.getElementById('umStats').innerHTML = '';
+    document.getElementById('umNote').textContent = '';
+  }
+}
+
+/* What the unit is reporting right this second, above the history. Read live
+   on every open and refresh rather than from the database, so this panel says
+   what the AC is doing now rather than what was last written down. */
+function renderLive(d) {
+  const L = d.live;
+  if (!L) { document.getElementById('umLive').innerHTML = ''; return; }
+  const st = L.state, f = d.filter || {};
+  const k = SYNC[L.sync] || SYNC.unknown;
+  const pin = p => (L.pins.find(x => x.pin === p) || {});
+
+  const tile = (label, value, note) => `<div class="live-tile">
+    <span class="k">${label}</span><span class="v">${value}</span>
+    ${note ? `<span class="n">${note}</span>` : ''}</div>`;
+
+  document.getElementById('umLive').innerHTML = `<div class="live-grid">
+    ${tile('Room', st.temp == null ? '–' : fmt(st.temp,1) + '°F',
+           st.target == null ? '' : `set to ${fmt(st.target,0)}°`)}
+    ${tile('Running', st.on ? `${st.mode}` : 'Off',
+           st.on ? `fan ${st.fan}` : '')}
+    ${tile('Drawing', fmt(st.watts) + ' W', pin('v16').value == null ? ''
+           : `${fmt(+pin('v16').value, 3)} kWh last 15 min`)}
+    ${tile('Sync', `<span class="dot" style="background:${k.dot};
+             display:inline-block;width:7px;height:7px;border-radius:50%;
+             margin-right:5px"></span>${k.label}`,
+           `reported ${ago(L.quiet_s)}`)}
+    ${tile('Signal', pin('v30').shown === '–' ? '–' : fmt(+pin('v30').value,1) + ' dBm',
+           `${fmt(st.failures)} sync failures`)}
+    ${tile('Filter', f.verdict === 'due' ? 'Change it'
+                   : f.verdict === 'soon' ? 'Getting close' : 'Fine',
+           f.hours == null ? '' : `${fmt(f.hours)} h in`)}
+    ${tile('Floor', d.floor || '–', d.saved ? `saved: ${d.saved}` : '')}
+  </div>`;
+
+  const named = L.pins.filter(p => p.name), rest = L.pins.filter(p => !p.name);
+  document.getElementById('umPinsSub').textContent =
+    `${L.pins.length} datastreams, read live. ${named.length} are identified; `
+    + `the other ${rest.length} are undocumented and shown raw — they are still `
+    + `what the unit is sending, so they are not hidden.`;
+  document.getElementById('umPins').innerHTML = `<table><thead><tr>
+      <th>Datastream</th><th>Pin</th><th>Value</th></tr></thead><tbody>
+    ${named.concat(rest).map(p => `<tr${p.name ? '' : ' class="unmapped"'}>
+      <td class="key">${p.name || '<span class="muted">unidentified</span>'}</td>
+      <td><code>${p.pin.toUpperCase()}</code></td>
+      <td>${p.shown}${p.unit ? ' ' + p.unit : ''}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+function renderUnitDetail(d) {
+  renderLive(d);
+  const s = d.series, t0 = d.range.from, t1 = d.range.to;
+  document.getElementById('umStats').innerHTML = [
+    ['Energy', fmt(d.totals.kwh,2), 'kWh', d.range.label.toLowerCase()],
+    ['Cost', '$'+fmt(d.totals.cost,2), '', ''],
+    ['Compressor', dur(d.totals.cooling_min), '', 'running'],
+    ['Peak draw', fmt(d.totals.peak_w), 'W', ''],
+    ['Sync failures', fmt(d.totals.failures), '', `${s.failures.length} events`],
+  ].map(([k,v,u,n]) => `<div class="stat"><div class="k">${k}</div>
+      <div class="v">${v}${u?`<span class="u">${u}</span>`:''}</div>
+      <div class="n">${n}</div></div>`).join('');
+
+  const el = document.getElementById('umChart');
+  const W = Math.max(320, el.clientWidth || 900);
+  const padL = 54, padR = 14;
+  // panel heights, top to bottom; the failure strip only needs room for ticks
+  const P = [ {key:'power', h:150}, {key:'temp', h:120},
+              {key:'rssi', h:70},   {key:'fail', h:46} ];
+  const gap = 16, padT = 14, padB = 26;
+  let y = padT;
+  P.forEach(p => { p.y = y; y += p.h + gap; });
+  const H = y - gap + padB;
+  const X = ts => padL + (ts - t0) / Math.max(1, t1 - t0) * (W - padL - padR);
+
+  /* step path: hold each value until the next sample, then jump */
+  const step = (pts, Y, close) => {
+    if (!pts.length) return '';
+    let dd = '', py = null;
+    pts.forEach(([ts, v], i) => {
+      const x = X(ts), yy = Y(v);
+      dd += i === 0 ? `M${x.toFixed(1)} ${yy.toFixed(1)}`
+                    : `L${x.toFixed(1)} ${py.toFixed(1)}L${x.toFixed(1)} ${yy.toFixed(1)}`;
+      py = yy;
+    });
+    dd += `L${X(t1).toFixed(1)} ${py.toFixed(1)}`;
+    return close ? dd + `L${X(t1).toFixed(1)} ${close}L${X(pts[0][0]).toFixed(1)} ${close}Z`
+                 : dd;
+  };
+
+  const axis = (p, lo, hi, unit, ticks=3) => {
+    const Y = v => p.y + (1 - (v - lo) / (hi - lo || 1)) * p.h;
+    const g = Array.from({length:ticks+1}, (_,k) => lo + (hi-lo)*k/ticks).map(v => `
+      <line class="gridline" x1="${padL}" x2="${W-padR}" y1="${Y(v)}" y2="${Y(v)}"></line>
+      <text class="tick" x="${padL-8}" y="${Y(v)+4}" text-anchor="end">${
+        Math.abs(v)>=100?Math.round(v):(+v.toFixed(1))}</text>`).join('');
+    return [Y, g + `<text class="lbl" x="${padL}" y="${p.y-3}">${unit}</text>`];
+  };
+
+  // ---- power
+  const pw = P[0], maxW = Math.max(100, ...s.watts.map(p => p[1])) * 1.1;
+  const [Yw, gw] = axis(pw, 0, maxW, 'Watts');
+  // ---- temperature: room and setpoint share one scale
+  const tp = P[1];
+  const tv = [...s.temp.map(p=>p[1]), ...s.target.map(p=>p[1])];
+  const tlo = Math.floor((Math.min(...tv, 60)-1)/2)*2, thi = Math.ceil((Math.max(...tv, 75)+1)/2)*2;
+  const [Yt, gt] = axis(tp, tlo, thi, '°F');
+  // ---- rssi
+  const rp = P[2], rv = s.rssi.map(p=>p[1]);
+  const rlo = Math.min(-80, ...rv), rhi = Math.max(-20, ...rv);
+  const [Yr, gr] = axis(rp, rlo, rhi, 'dBm', 2);
+  // ---- failures: ticks, one per increment
+  const fp = P[3];
+
+  // shade any stretch the unit had no session, so a flat line there is not
+  // mistaken for a reported value
+  let bands = '', open = null;
+  s.link.forEach(([ts, v]) => {
+    if (!v && open === null) open = ts;
+    if (v && open !== null) { bands += band(open, ts); open = null; }
+  });
+  if (open !== null) bands += band(open, t1);
+  function band(a, b) {
+    return `<rect x="${X(a)}" y="${padT}" width="${Math.max(1,X(b)-X(a))}"
+      height="${H-padT-padB}" fill="var(--s2)" opacity=".07"></rect>`;
+  }
+
+  const n = Math.min(Math.max(3, Math.floor(W/130)), 8);
+  const xl = Array.from({length:n}, (_,k) => t0 + (t1-t0)*k/(n-1)).map(ts =>
+    `<text class="tick" x="${X(ts)}" y="${H-6}" text-anchor="middle">${
+      (t1-t0) > 2*86400 ? dayLbl(ts) : clock(ts)}</text>`).join('');
+
+  const fails = s.failures.map(([ts,inc]) =>
+    `<line x1="${X(ts)}" x2="${X(ts)}" y1="${fp.y+6}" y2="${fp.y+fp.h-6}"
+       stroke="var(--s2)" stroke-width="${Math.min(4, 1+inc)}" opacity=".8"></line>`).join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Power, temperature, signal and sync failures for ${d.display}">
+    ${bands}${gw}${gt}${gr}
+    <text class="lbl" x="${padL}" y="${fp.y-3}">Sync failures</text>
+    <line class="gridline" x1="${padL}" x2="${W-padR}"
+      y1="${fp.y+fp.h/2}" y2="${fp.y+fp.h/2}"></line>
+    ${fails}
+    <path d="${step(s.watts, Yw, pw.y+pw.h)}" fill="var(--s1)" opacity=".13"></path>
+    <path d="${step(s.watts, Yw)}" fill="none" stroke="${css('--s1')}" stroke-width="1.6"></path>
+    <path d="${step(s.target, Yt)}" fill="none" stroke="${css('--s4')}"
+      stroke-width="1.4" stroke-dasharray="4 3"></path>
+    <path d="${step(s.temp, Yt)}" fill="none" stroke="${css('--s3')}" stroke-width="1.8"></path>
+    <path d="${step(s.rssi, Yr)}" fill="none" stroke="${css('--text-muted')}"
+      stroke-width="1.2" opacity=".7"></path>
+    ${xl}
+    <g id="umcross" style="display:none">
+      <line y1="${padT}" y2="${H-padB}" stroke="var(--text-muted)" stroke-dasharray="3 3"></line>
+    </g>
+    <rect x="${padL}" y="${padT}" width="${W-padL-padR}" height="${H-padT-padB}"
+      fill="transparent" id="umhit"></rect></svg>`;
+
+  document.getElementById('umNote').innerHTML =
+    `<span style="color:${css('--s1')}">■</span> watts &nbsp;
+     <span style="color:${css('--s3')}">■</span> room &nbsp;
+     <span style="color:${css('--s4')}">■</span> setpoint &nbsp;
+     <span style="color:var(--text-muted)">■</span> signal &nbsp;
+     <span style="color:${css('--s2')}">■</span> sync failure${
+     bands ? ' &nbsp; shaded = no cloud session' : ''}.
+     Steps, not slopes: readings are written on change and hold until the next one.${
+     d.range.trimmed ? ` Local history for this unit only starts
+       ${dayLbl(t0)} ${clock(t0)}, so the chart begins there rather than at the
+       start of the range.` : ''}`;
+
+  // crosshair reads every series at the hovered time
+  const svg = el.querySelector('svg'), cr = el.querySelector('#umcross');
+  const vl = cr.querySelector('line');
+  const at = (pts, ts) => {
+    let v = null;
+    for (const [a, b] of pts) { if (a > ts) break; v = b; }
+    return v;
+  };
+  el.querySelector('#umhit').addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const ts = t0 + Math.max(0, Math.min(1,
+      ((e.clientX - r.left) / r.width * W - padL) / (W - padL - padR))) * (t1 - t0);
+    cr.style.display = ''; vl.setAttribute('x1', X(ts)); vl.setAttribute('x2', X(ts));
+    const near = s.failures.filter(f => Math.abs(f[0]-ts) < (t1-t0)/W*6);
+    showTip(e, `<b>${dayLbl(ts)} ${clock(ts)}</b>
+      <div class="tr"><span>Drawing</span><span>${fmt(at(s.watts,ts))} W</span></div>
+      <div class="tr"><span>Room</span><span>${fmt(at(s.temp,ts),1)}°F</span></div>
+      <div class="tr"><span>Setpoint</span><span>${fmt(at(s.target,ts),0)}°F</span></div>
+      <div class="tr"><span>Signal</span><span>${fmt(at(s.rssi,ts),1)} dBm</span></div>
+      <div class="tr"><span>Power</span><span>${at(s.power,ts)==1?'On':'Off'}</span></div>
+      ${at(s.link,ts)===0?'<div class="tr"><span>Session</span><span>dropped</span></div>':''}
+      ${near.length?`<div class="tr" style="margin-top:5px;border-top:1px solid var(--border);
+        padding-top:5px"><span>Sync failure</span><span>+${near[0][1]}</span></div>`:''}`);
+  });
+  el.querySelector('#umhit').addEventListener('mouseleave', () => {
+    cr.style.display = 'none'; hideTip();
+  });
+}
+
+document.getElementById('umClose').addEventListener('click', closeUnit);
+document.getElementById('modalBack').addEventListener('click', closeUnit);
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  closeUnit();
+  if (!document.getElementById('addUnitModal').hidden) toggleAddUnit(false);
+});
+
+/* Our integrated kWh against v16, the unit's own energy counter. Shown rather
+   than applied: the fleet-wide factor is near 1 because the per-unit errors
+   cancel, so correcting by it would move the totals a little and fix nothing. */
+async function loadMeter() {
+  try {
+    const d = await api('/api/meter?range=' + (state.range || '24h'));
+    if (d.error) throw new Error(d.error);
+    renderMeter(d);
+  } catch (e) {
+    document.getElementById('meterSub').textContent =
+      'Could not compare: ' + (e.message || e);
+  }
+}
+
+function renderMeter(d) {
+  const rows = Object.entries(d.units);
+  document.getElementById('meterSub').textContent = d.detail;
+  document.getElementById('meterTable').innerHTML = `<table><thead><tr>
+      <th>Unit</th><th>Our figure</th><th>Unit's meter</th><th>Difference</th>
+      <th>Compared over</th><th></th></tr></thead><tbody>
+    ${rows.sort((a,b) => (a[1].delta_pct ?? 99) - (b[1].delta_pct ?? 99))
+      .map(([n,r]) => {
+      const off = r.delta_pct != null && Math.abs(r.delta_pct) > 10;
+      const cls = r.delta_pct == null ? 'warn' : off ? 'bad' : 'ok';
+      return `<tr>
+        <td class="key">${ROOM.get(n)||n}</td>
+        <td>${r.ours_kwh == null ? '–' : fmt(r.ours_kwh,3) + ' kWh'}</td>
+        <td>${r.meter_kwh == null ? '–' : fmt(r.meter_kwh,3) + ' kWh'}</td>
+        <td>${r.delta_pct == null ? '–'
+              : `<span class="tag ${cls}">${r.delta_pct > 0 ? '+' : ''}${
+                 fmt(r.delta_pct,1)}%</span>`}</td>
+        <td>${r.hours ? fmt(r.hours,1) + ' h' : '–'}${
+             r.coverage ? ` <span class="muted">${Math.round(r.coverage*100)}% covered</span>` : ''}</td>
+        <td>${r.verdict}</td></tr>`;
+    }).join('')}
+  </tbody></table>`;
+  document.getElementById('meterNote').textContent =
+    'v16 is each unit\'s own kWh for the last quarter hour. It has no history '
+    + 'before this tool started logging, so a window is narrowed to the span the '
+    + 'meter actually covers and both sides are measured across that — otherwise '
+    + 'our figure for a whole day gets compared against their few hours. Nothing '
+    + 'here is applied to stored energy; the raw readings remain the measurement.';
+}
+
+/* ---------------- identify an unbound datastream ---------------- */
+let idTimer = null;
+
+async function loadIdentify() {
+  try {
+    const d = await api('/api/identify');
+    const u = document.getElementById('idUnit');
+    if (!u.options.length)
+      u.innerHTML = (d.units||[]).map(n => `<option>${n}</option>`).join('');
+    const l = document.getElementById('idLabel');
+    if (!l.options.length)
+      l.innerHTML = (d.wanted||[]).map(n => `<option>${n}</option>`).join('');
+    renderIdentify(d);
+  } catch (e) { /* advisory */ }
+}
+
+function renderIdentify(d) {
+  const w = d.watching;
+  document.getElementById('idStop').hidden = !w;
+  document.getElementById('idStart').disabled = !!w;
+  const bound = Object.entries(d.bindings || {});
+  const boundHtml = bound.length
+    ? `<p class="note">Bound so far: ${bound.map(([k,v]) =>
+        `${k} = <code>${v.toUpperCase()}</code>`).join(', ')}</p>` : '';
+  if (!w) {
+    document.getElementById('idState').innerHTML = boundHtml;
+    if (idTimer) { clearInterval(idTimer); idTimer = null; }
+    return;
+  }
+  const cls = w.verdict === 'found' ? 'ok' : w.verdict === 'ambiguous' ? 'bad' : 'warn';
+  document.getElementById('idState').innerHTML = `
+    <div class="api-ep">
+      <div class="api-head">
+        <span class="tag ${cls}">${w.verdict}</span>
+        <code class="api-path">${w.unit} · ${w.label}</code>
+        <span class="muted">watching ${w.watching.length} pins · ${w.elapsed}s</span>
+      </div>
+      <p class="api-sum">${w.detail}</p>
+      ${Object.keys(w.moved||{}).length ? `<table class="api-params"><tbody>
+        ${Object.entries(w.moved).map(([p,m]) => `<tr>
+          <td class="key"><code>${p.toUpperCase()}</code></td>
+          <td>${m.from} → ${m.to}
+            ${w.verdict === 'found'
+              ? `<button class="seg id-confirm" data-pin="${p}"
+                   style="margin-left:8px">Bind ${w.label} to ${p.toUpperCase()}</button>`
+              : ''}</td></tr>`).join('')}
+      </tbody></table>` : ''}
+    </div>${boundHtml}`;
+  document.querySelectorAll('.id-confirm').forEach(b =>
+    b.addEventListener('click', async () => {
+      await api(`/api/identify?action=confirm&pin=${b.dataset.pin}`);
+      loadIdentify();
+    }));
+  if (!idTimer) idTimer = setInterval(loadIdentify, 5000);
+}
+
+document.getElementById('idStart').addEventListener('click', async () => {
+  const unit = document.getElementById('idUnit').value;
+  const label = document.getElementById('idLabel').value;
+  await api(`/api/identify?action=start&unit=${encodeURIComponent(unit)}`
+            + `&label=${encodeURIComponent(label)}`);
+  loadIdentify();
+});
+document.getElementById('idStop').addEventListener('click', async () => {
+  await api('/api/identify?action=stop');
+  loadIdentify();
+});
+
+/* ---------------- month projection ---------------- */
+async function loadForecast() {
+  try { renderForecast(await api('/api/forecast')); }
+  catch (e) {
+    document.getElementById('fcSub').textContent =
+      'Could not project: ' + (e.message || e);
+  }
+}
+
+function renderForecast(p) {
+  const sub = document.getElementById('fcSub');
+  if (!p.available) {
+    sub.textContent = p.reason || 'Not enough of this month yet to project.';
+    document.getElementById('fcStats').innerHTML = '';
+    document.getElementById('fcTable').innerHTML = '';
+    document.getElementById('fcCaveats').textContent = '';
+    return;
+  }
+  const m = p.measured, r = p.remaining, t = p.month_total, b = p.basis;
+  sub.innerHTML = `${m.days} day${m.days===1?'':'s'} measured, ${fmt(r.days,1)} to go. `
+    + (p.method === 'degree-day'
+        ? `Projected from this system's own kWh per cooling degree-day `
+          + `(${fmt(b.base_kwh,1)} kWh/day plus ${fmt(b.kwh_per_cdd,2)} per degree-day, `
+          + `r²&nbsp;${fmt(b.r2,2)}), against an expected ${fmt(r.mean_f,0)}°F.`
+        : `Projected from the daily mean — there was not enough weather signal `
+          + `to fit anything better.`);
+
+  document.getElementById('fcStats').innerHTML = [
+    ['Month so far', '$'+fmt(m.cost,2), '', `${fmt(m.kwh,0)} kWh over ${m.days} days`],
+    ['Still to come', '$'+fmt(r.cost,2), '', `${fmt(r.kwh,0)} kWh, ${fmt(r.days,1)} days`],
+    ['Month lands at', '$'+fmt(t.cost,2), '',
+     `between $${fmt(t.cost_lo,2)} and $${fmt(t.cost_hi,2)}`],
+    ['Measured share', fmt(100-(m.est_share||0),0), '%',
+     m.est_share ? `${fmt(m.est_share,1)}% reconstructed` : 'all measured'],
+  ].map(([k,v,u,n]) => `<div class="stat"><div class="k">${k}</div>
+      <div class="v">${v}${u?`<span class="u">${u}</span>`:''}</div>
+      <div class="n">${n}</div></div>`).join('');
+
+  const units = p.units || [];
+  document.getElementById('fcTable').innerHTML = !units.length ? '' :
+    `<table><thead><tr><th>Unit</th><th>So far</th><th>Month projected</th>
+      <th>Range</th><th></th></tr></thead><tbody>
+    ${units.slice().sort((a,b2) => (b2.projected_cost||0)-(a.projected_cost||0)).map(u => `<tr>
+      <td class="key">${u.display || ROOM.get(u.unit) || u.unit}</td>
+      <td>$${fmt(u.cost||0,2)}<span class="muted"> · ${fmt(u.kwh||0,0)} kWh</span></td>
+      <td>$${fmt(u.projected_cost||0,2)}</td>
+      <td class="muted">$${fmt(u.projected_lo||0,2)}–$${fmt(u.projected_hi||0,2)}</td>
+      <td>${u.partial_month
+            ? `<span class="tag warn">only ${u.days_seen} days logged</span>` : ''}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+
+  document.getElementById('fcCaveats').innerHTML =
+    (p.caveats || []).map(c => '• ' + c).join('<br>');
+}
+
+/* ---------------- units ----------------
+   Units used to be WINDMILL_TOKEN_* lines in .env, so adding one meant editing
+   a file and restarting. They live in the database now; this is the front of
+   that. A token is write-only from here -- the API returns its last four
+   characters and never the value. */
+async function loadUnits() {
+  try { renderUnits(await api('/api/units')); }
+  catch (e) {
+    document.getElementById('unitsAdminSub').textContent =
+      'Could not load units: ' + (e.message || e);
+  }
+}
+
+/* Firmware is worth a line of its own here: these units do not all run the same
+   build, an over-the-air update a unit was offline for simply never happened,
+   and there is no other place that tells you. "Behind" is measured against the
+   newest build on this account rather than a number hard-coded here. */
+function fwText(u) {
+  const f = u.firmware || {};
+  if (!f.version) return '<span class="muted">unknown</span>';
+  const when = f.updated_at
+    ? `updated ${dayLbl(f.updated_at)}`
+    : '<span class="muted">never updated</span>';
+  return `<code>${f.version}</code>`
+    + (u.outdated ? ' <span class="tag bad">behind</span>' : '')
+    + ` · ${when}`;
+}
+
+function renderUnits(d) {
+  const rows = d.units || [];
+  const behind = rows.filter(u => u.outdated);
+  document.getElementById('unitsAdminSub').innerHTML =
+    `${rows.length} unit${rows.length===1?'':'s'}. Add one with its device token `
+    + `from <code>dashboard.windmillair.com</code> — no restart, and nothing to `
+    + `edit in <code>.env</code>. <b>Label</b> renames it on the dashboard and `
+    + `costs nothing; <b>Rename</b> changes the key its history is stored under `
+    + `and moves every row with it. Removing keeps the history unless you say `
+    + `otherwise.`
+    + (behind.length
+        ? `<br><b>${behind.map(u => u.label || u.name).join(', ')}</b> `
+          + `${behind.length > 1 ? 'are' : 'is'} on older firmware than the rest `
+          + `of your units (${behind[0].firmware.version} against `
+          + `${d.newest_firmware}) and never received an update. Only Windmill `
+          + `can push one — ask them, quoting the unit names.`
+        : '');
+
+  // A list rather than a table: five columns of metadata is more than anyone
+  // needs to answer "which units do I have, and are they working".
+  document.getElementById('unitsAdmin').innerHTML = !rows.length
+    ? '<p class="note">No units yet. Add one above.</p>'
+    : `<div class="unit-list">${rows.map(u => `
+      <div class="unit-row${u.enabled ? '' : ' off'}">
+        <span class="swatch" style="background:${colorFor(u.name)}"></span>
+        <div class="who">
+          <div class="nm">${u.label || u.name}</div>
+          <div class="sub2">${
+            u.label && u.label !== u.name ? `device “${u.name}” · ` : ''
+          }firmware ${fwText(u)} · token <code>${u.token_hint}</code>${
+            u.enabled ? '' : ' · <span class="tag warn">disabled</span>'}</div>
+        </div>
+        <div class="acts">
+          <button class="seg u-label" data-name="${encodeURIComponent(u.name)}"
+            data-label="${u.label || u.name}">Label</button>
+          <button class="seg u-rename" data-name="${encodeURIComponent(u.name)}">Rename</button>
+          <button class="seg u-toggle" data-name="${encodeURIComponent(u.name)}"
+            data-on="${u.enabled ? 0 : 1}">${u.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="seg u-remove" data-name="${encodeURIComponent(u.name)}">Remove</button>
+        </div>
+      </div>`).join('')}</div>`;
+
+  document.querySelectorAll('.u-label').forEach(b => b.addEventListener('click', async () => {
+    const name = decodeURIComponent(b.dataset.name);
+    const now = b.dataset.label;
+    const label = prompt(`What should "${name}" be called on the dashboard?`, now);
+    if (label === null || label === now) return;
+    await unitAction({action:'label', name, label});
+  }));
+  document.querySelectorAll('.u-rename').forEach(b => b.addEventListener('click', async () => {
+    const from = decodeURIComponent(b.dataset.name);
+    const to = prompt(`Rename "${from}" to:`, from);
+    if (!to || to === from) return;
+    await unitAction({action:'rename', name:from, to});
+  }));
+  document.querySelectorAll('.u-toggle').forEach(b => b.addEventListener('click',
+    () => unitAction({action:'toggle', name:decodeURIComponent(b.dataset.name), on:b.dataset.on})));
+  document.querySelectorAll('.u-remove').forEach(b => b.addEventListener('click', async () => {
+    const name = decodeURIComponent(b.dataset.name);
+    if (!confirm(`Remove "${name}"?\n\nIts recorded history is kept.`)) return;
+    await unitAction({action:'remove', name});
+  }));
+}
+
+async function unitAction(params) {
+  try {
+    const r = await api('/api/units?' + new URLSearchParams(params));
+    if (!r.ok) flash(document.getElementById('unitsAdmin'), r.detail || 'failed');
+  } catch (e) {
+    flash(document.getElementById('unitsAdmin'), String(e.message || e));
+  }
+  await loadUnits();
+  await load();                 // the unit list drives the whole page
+}
+
+function toggleAddUnit(open) {
+  document.getElementById('addUnitModal').hidden = !open;
+  document.getElementById('uAddErr').hidden = true;
+  if (open) document.getElementById('uName').focus();
+  else { document.getElementById('uName').value = '';
+         document.getElementById('uToken').value = ''; }
+}
+document.getElementById('uAddOpen').addEventListener('click', () => toggleAddUnit(true));
+document.getElementById('uAddCancel').addEventListener('click', () => toggleAddUnit(false));
+document.getElementById('uAddClose').addEventListener('click', () => toggleAddUnit(false));
+document.getElementById('addBack').addEventListener('click', () => toggleAddUnit(false));
+// Enter submits from either field -- a two-field dialog that needs the mouse
+// to finish is a small annoyance repeated every time.
+['uName', 'uToken'].forEach(id =>
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('uAdd').click();
+  }));
+
+document.getElementById('uAdd').addEventListener('click', async () => {
+  const name = document.getElementById('uName').value.trim();
+  const token = document.getElementById('uToken').value.trim();
+  const err = document.getElementById('uAddErr');
+  const fail = m => { err.textContent = m; err.hidden = false; };
+  if (!name || !token) return fail('A unit needs both a name and a token.');
+  // Reported in the dialog rather than behind it: the reason a unit was
+  // refused is no use once the thing you typed it into has closed.
+  try {
+    const r = await api('/api/units?' + new URLSearchParams({action:'add', name, token}));
+    if (!r.ok) return fail(r.detail || 'Could not add that unit.');
+  } catch (e) {
+    return fail(String(e.message || e));
+  }
+  toggleAddUnit(false);
+  await loadUnits();
+  await load();
+});
+
+async function loadBackup() {
+  try {
+    const b = await api('/api/backup');
+    document.getElementById('backupSub').innerHTML = b.count
+      ? `${b.count} snapshot${b.count===1?'':'s'} in <code>${b.dir}</code>, newest `
+        + `<code>${b.newest}</code>. Keeping ${b.keep}, one every `
+        + `${Math.round(b.interval_h)}h. Windmill retains 30 days — everything `
+        + `older exists only here.`
+      : `No snapshots yet in <code>${b.dir}</code>.`;
+    const r = document.getElementById('rate2');
+    if (document.activeElement !== r && state.data) r.value = state.data.rate;
+    document.getElementById('rateNote').textContent = state.data
+      ? `currently $${fmt(state.data.rate,3)}/kWh` : '';
+  } catch (e) { /* advisory */ }
+}
+
+document.getElementById('backupNow').addEventListener('click', async e => {
+  e.target.disabled = true; e.target.textContent = 'Backing up…';
+  try {
+    const r = await api('/api/backup?run=1');
+    flash(document.getElementById('backupSub'), r.detail || r.status, r.ok);
+  } catch (err) { flash(document.getElementById('backupSub'), String(err.message||err)); }
+  e.target.textContent = 'Back up now'; e.target.disabled = false;
+  loadBackup();
+});
+
+document.getElementById('rate2').addEventListener('change', async e => {
+  const v = parseFloat(e.target.value);
+  if (!isFinite(v) || v < 0) return;
+  await api('/api/rate?set=' + v);
+  await load(); loadBackup();
+});
+
+/* ---------------- schedules ---------------- */
+const SCH_DAYS = [['0123456','Every day'],['01234','Weekdays'],['56','Weekends'],
+                  ['0','Mon'],['1','Tue'],['2','Wed'],['3','Thu'],['4','Fri'],
+                  ['5','Sat'],['6','Sun']];
+const SCH_VALUES = {
+  power:  [[1,'On'],[0,'Off']],
+  mode:   [[1,'Cool'],[2,'Eco'],[0,'Fan']],
+  fan:    [[0,'Auto'],[1,'Low'],[2,'Medium'],[3,'High']],
+};
+
+async function loadSchedules() {
+  try {
+    const d = await api('/api/schedules');
+    if (d.error) throw new Error(d.error);
+    renderSchedules(d);
+  } catch (e) {
+    document.getElementById('schedTable').innerHTML =
+      `<p class="note">Could not load schedules: ${e.message||e}</p>`;
+  }
+}
+
+function renderSchedules(d) {
+  const f = document.getElementById('schField');
+  if (!f.options.length)
+    f.innerHTML = Object.keys(d.controls).map(k =>
+      `<option value="${k}">${k}</option>`).join('');
+  const scope = document.getElementById('schScope');
+  if (document.activeElement !== scope && !state.editing)
+    scope.innerHTML = (d.scopes||[]).map(s =>
+      `<option value="${s}">${s === '' ? 'every unit'
+        : s.startsWith('floor:') ? 'floor ' + s.slice(6) : s}</option>`).join('');
+  const days = document.getElementById('schDays');
+  if (!days.options.length)
+    days.innerHTML = SCH_DAYS.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  if (!state.editing) schValueInput();
+
+  const rules = d.rules || [];
+  document.getElementById('schedTable').innerHTML = !rules.length
+    ? '<p class="note">No rules yet.</p>'
+    : `<table><thead><tr><th>Rule</th><th>Last run</th><th></th></tr></thead><tbody>
+      ${rules.map(r => `<tr${r.enabled ? '' : ' class="unmapped"'}>
+        <td class="key">${r.text}</td>
+        <td>${r.last_run ? dayLbl(r.last_run) + ' ' + clock(r.last_run)
+                         : '<span class="muted">never</span>'}</td>
+        <td style="white-space:nowrap">
+          <button class="seg sch-edit" data-id="${r.id}">Edit</button>
+          <button class="seg sch-run" data-id="${r.id}">Run now</button>
+          <button class="seg sch-toggle" data-id="${r.id}" data-on="${r.enabled?0:1}"
+            >${r.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="seg sch-del" data-id="${r.id}">Delete</button>
+        </td></tr>`).join('')}
+    </tbody></table>`;
+
+  document.getElementById('schedNext').textContent = (d.next||[]).length
+    ? 'Next: ' + d.next.map(n =>
+        `${dayLbl(n.at)} ${clock(n.at)} — ${n.text.split(' — ')[1]}`).join(' · ')
+    : 'Nothing scheduled.';
+
+  document.querySelectorAll('.sch-edit').forEach(b => b.addEventListener('click',
+    () => startEdit(rules.find(r => String(r.id) === b.dataset.id))));
+  document.querySelectorAll('.sch-run').forEach(b => b.addEventListener('click',
+    () => schAction(b, `action=run&id=${b.dataset.id}`)));
+  document.querySelectorAll('.sch-toggle').forEach(b => b.addEventListener('click',
+    () => schAction(b, `action=toggle&id=${b.dataset.id}&on=${b.dataset.on}`)));
+  document.querySelectorAll('.sch-del').forEach(b => b.addEventListener('click',
+    () => schAction(b, `action=delete&id=${b.dataset.id}`)));
+}
+
+/* The value control follows the field: a setpoint is a number, everything else
+   is a short list, and offering a free number for "mode" invites a 400. */
+function schValueInput() {
+  const field = document.getElementById('schField').value;
+  const box = document.getElementById('schValue');
+  const opts = SCH_VALUES[field];
+  if (!opts) {
+    if (box.tagName !== 'INPUT') return;
+    box.type = 'number'; box.min = 60; box.max = 86;
+    if (!box.value || +box.value < 60 || +box.value > 86) box.value = 70;
+    box.style.width = '70px';
+    return;
+  }
+  const sel = document.createElement('select');
+  sel.id = 'schValue';
+  sel.innerHTML = opts.map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  box.replaceWith(sel);
+}
+
+/* Editing loads the rule back into the same form that creates one, so there is
+   one set of controls with one set of rules about what each field accepts,
+   rather than a second inline editor that could drift from it. */
+function startEdit(rule) {
+  if (!rule) return;
+  state.editing = rule.id;
+  document.getElementById('schField').value = rule.field;
+  rebuildValueInput();                       // the value control follows the field
+  document.getElementById('schValue').value = String(rule.value);
+  document.getElementById('schScope').value = rule.scope || '';
+  const hh = String(Math.floor(rule.at_min / 60)).padStart(2, '0');
+  const mm = String(rule.at_min % 60).padStart(2, '0');
+  document.getElementById('schAt').value = `${hh}:${mm}`;
+  document.getElementById('schDays').value = rule.days || '0123456';
+  document.getElementById('schAdd').textContent = 'Save changes';
+  document.getElementById('schCancel').hidden = false;
+  document.getElementById('schedForm').scrollIntoView({block: 'nearest'});
+}
+
+function cancelEdit() {
+  state.editing = null;
+  document.getElementById('schAdd').textContent = 'Add rule';
+  document.getElementById('schCancel').hidden = true;
+}
+
+async function schAction(btn, query) {
+  if (btn) btn.disabled = true;
+  try { await api('/api/schedules?' + query); }
+  catch (e) { flash(document.getElementById('schedTable'), String(e.message||e)); }
+  if (btn) btn.disabled = false;
+  loadSchedules();
+}
+
+function rebuildValueInput() {
+  const old = document.getElementById('schValue');
+  if (old.tagName === 'SELECT') {
+    const inp = document.createElement('input');
+    inp.id = 'schValue'; inp.type = 'number'; inp.style.width = '70px';
+    old.replaceWith(inp);
+  }
+  schValueInput();
+}
+
+document.getElementById('schField').addEventListener('change', rebuildValueInput);
+document.getElementById('schCancel').addEventListener('click', cancelEdit);
+document.getElementById('schAdd').addEventListener('click', async () => {
+  const [hh, mm] = (document.getElementById('schAt').value || '07:00').split(':');
+  const params = {
+    action: state.editing ? 'edit' : 'add',
+    field: document.getElementById('schField').value,
+    value: document.getElementById('schValue').value,
+    scope: document.getElementById('schScope').value,
+    at: String(+hh * 60 + +mm),
+    days: document.getElementById('schDays').value,
+  };
+  if (state.editing) params.id = state.editing;
+  await schAction(document.getElementById('schAdd'),
+                  new URLSearchParams(params).toString());
+  cancelEdit();
+});
+
+/* ---------------- audit trail ---------------- */
+const AUDIT_RANGES = [['6h','6h'],['24h','24h'],['7d','7 days'],
+                      ['30d','30 days'],['all','All']];
+
+async function loadAudit() {
+  const q = new URLSearchParams({range: state.auditRange});
+  if (state.auditSource) q.set('source', state.auditSource);
+  if (state.auditTarget) q.set('target', state.auditTarget);
+  try {
+    const d = await api('/api/audit?' + q);
+    if (d.error) throw new Error(d.error);
+    renderAudit(d);
+  } catch (e) {
+    document.getElementById('auditLog').innerHTML =
+      `<p class="note">Could not load the audit trail: ${e.message || e}</p>`;
+  }
+}
+
+function renderAudit(d) {
+  document.getElementById('auditRanges').innerHTML = AUDIT_RANGES.map(([r,l]) =>
+    `<button data-range="${r}" aria-pressed="${state.auditRange===r}">${l}</button>`).join('');
+
+  const opt = (v, label, cur) =>
+    `<option value="${v}"${cur===v?' selected':''}>${label}</option>`;
+  const src = document.getElementById('auditSource');
+  if (document.activeElement !== src)
+    src.innerHTML = opt('', 'Anyone', state.auditSource)
+      + (d.sources||[]).map(s => opt(s, s === 'you' ? 'You' : s, state.auditSource)).join('');
+  const tgt = document.getElementById('auditTarget');
+  if (document.activeElement !== tgt)
+    tgt.innerHTML = opt('', 'All units', state.auditTarget)
+      + (d.targets||[]).map(t => opt(t, ROOM.get(t)||t, state.auditTarget)).join('');
+
+  const r = d.range || {}, ev = d.events || [];
+  document.getElementById('auditCount').textContent =
+    !r.total ? 'Nothing recorded in this range'
+    : r.shown < r.total ? `Showing the newest ${r.shown} of ${r.total}`
+    : `${r.total} action${r.total===1?'':'s'} · ${r.label||''}`.trim();
+
+  document.getElementById('auditLog').innerHTML = !ev.length
+    ? `<p class="note">No actions recorded in this range.</p>`
+    : `<table><thead><tr><th>When</th><th>Who</th><th>What</th>
+        <th>Action</th><th>Result</th></tr></thead><tbody>
+      ${ev.map(e => `<tr${e.ok ? '' : ' class="failed"'}>
+        <td title="${new Date(e.ts*1000).toLocaleString()}">${dayLbl(e.ts)} ${clock(e.ts)}</td>
+        <td>${e.source === 'you' ? 'You'
+              : `<span class="tag warn">${e.source||'?'}</span>`}</td>
+        <td class="key">${e.target ? (ROOM.get(e.target)||e.target)
+                                   : '<span class="muted">whole system</span>'}</td>
+        <td>${e.action||''}</td>
+        <td>${e.ok ? (e.detail || '<span class="muted">ok</span>')
+                   : `<span class="failtxt">failed</span> ${e.detail||''}`}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+
+document.getElementById('auditRanges').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.auditRange = b.dataset.range;
+  try { localStorage.setItem('windmill.auditRange', state.auditRange); } catch (err) {}
+  loadAudit();
+});
+document.getElementById('auditSource').addEventListener('change', e => {
+  state.auditSource = e.target.value; loadAudit();
+});
+document.getElementById('auditTarget').addEventListener('change', e => {
+  state.auditTarget = e.target.value; loadAudit();
+});
+
+/* ---------------- theme ----------------
+   Light and dark palettes both already exist as CSS variables; this only picks
+   which one is in force. "Auto" removes the attribute and lets the OS decide.
+
+   Every chart reads its colours through css() at draw time rather than holding
+   them, so a switch has to redraw them -- an SVG already on the page keeps the
+   stroke it was given. */
+const THEMES = [['light','Light'],['dark','Dark'],['system','Auto']];
+
+function renderThemeToggle() {
+  document.getElementById('themeToggle').innerHTML = THEMES.map(([v,l]) =>
+    `<button data-theme="${v}" aria-pressed="${state.theme===v}"
+       title="${v==='system'?'Follow the system setting':l+' theme'}">${l}</button>`).join('');
+}
+
+function applyTheme(t, redraw) {
+  state.theme = t;
+  try { localStorage.setItem('windmill.theme', t); } catch (e) {}
+  if (t === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+  renderThemeToggle();
+  if (redraw) {
+    if (state.data) rerender();
+    redrawTab();
+    if (UM.data) renderUnitDetail(UM.data);   // the open modal keeps stale colours otherwise
+  }
+}
+
+document.getElementById('themeToggle').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) applyTheme(b.dataset.theme, true);
+});
+
+// Following the system setting means following it as it changes, not only at load
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (state.theme === 'system') applyTheme('system', true);
+});
+
+/* ---------------- API reference ----------------
+   Rendered from /api/docs, which the server builds from the same data the
+   routes are declared with, so this page cannot document an endpoint that
+   does not exist or miss one that does. */
+const EFFECT = {
+  read:     ['Read',            'ok',   'Changes nothing.'],
+  settings: ['Changes settings','warn', 'Writes to the database.'],
+  hardware: ['Drives hardware', 'bad',  'Sends commands to an AC unit.'],
+};
+
+let apiLoaded = false;
+async function loadApiDocs(force) {
+  if (apiLoaded && !force) return;
+  try {
+    const r = await api('/api/docs');
+    apiLoaded = true;
+    renderApiDocs(r);
+  } catch (e) {
+    document.getElementById('apiSub').textContent =
+      'Could not load the API reference: ' + (e.message || e);
+  }
+}
+
+function renderApiDocs(r) {
+  document.getElementById('apiSub').innerHTML =
+    `${r.endpoints.length} endpoints on <code>http://localhost:8787</code>. `
+    + `Read-only ones can be run from here; the rest are listed but not runnable, `
+    + `because a documentation page is a bad place to accidentally power-cycle an AC.`;
+
+  const groups = [];
+  r.endpoints.forEach(e => {
+    const g = groups.find(x => x[0] === e.group) || (groups.push([e.group, []]), groups.at(-1));
+    g[1].push(e);
+  });
+
+  document.getElementById('apiList').innerHTML = groups.map(([g, eps]) => `
+    <h3 class="api-group">${g}</h3>
+    ${eps.map(e => {
+      const [label, cls, why] = EFFECT[e.effect] || EFFECT.read;
+      return `<div class="api-ep">
+        <div class="api-head">
+          <code class="api-path">GET ${e.path}</code>
+          <span class="tag ${cls}" title="${why}">${label}</span>
+          ${e.effect === 'read'
+            ? `<button class="ghost api-run" data-path="${e.path}">Run</button>` : ''}
+        </div>
+        <p class="api-sum">${e.summary}</p>
+        ${e.params && e.params.length ? `<table class="api-params"><tbody>
+          ${e.params.map(p => `<tr>
+            <td class="key"><code>${p.name}</code>${
+              p.required ? '<span class="req">required</span>' : ''}</td>
+            <td>${p.does || ''}${p.values ? ` <code>${p.values}</code>` : ''}</td>
+          </tr>`).join('')}
+        </tbody></table>` : ''}
+        <p class="api-ret"><b>Returns</b> ${e.returns}</p>
+        <pre class="api-out" hidden></pre>
+      </div>`;
+    }).join('')}`).join('');
+
+  document.getElementById('apiRef').innerHTML = `<table>
+    <thead><tr><th>Reference</th><th>Values</th></tr></thead><tbody>
+      <tr><td class="key">range presets</td><td>${
+        r.ranges.map(x => `<code>${x}</code>`).join(' ')}</td></tr>
+      <tr><td class="key">unit names</td><td>${
+        r.units.map(x => `<code>${x}</code>`).join(' ')}</td></tr>
+      ${Object.entries(r.controls).map(([k, v]) => `<tr>
+        <td class="key">field=<code>${k}</code></td>
+        <td><code>${v.accepts}</code> &nbsp;<span class="muted">${v.meaning}
+          — pin ${v.pin}</span></td></tr>`).join('')}
+      ${r.notes.map(n => `<tr><td class="key">note</td><td>${n}</td></tr>`).join('')}
+    </tbody></table>`;
+
+  renderUpstream(r);
+  document.querySelectorAll('.api-run').forEach(b =>
+    b.addEventListener('click', () => runApi(b)));
+}
+
+/* The upstream API this tool consumes. Windmill publishes no documentation for
+   any of it, so every line here is something established by calling the thing
+   and watching what came back -- which is exactly why it is worth writing down.
+   No Run buttons: these calls carry a device token and reach real hardware. */
+function renderUpstream(r) {
+  document.getElementById('upSub').innerHTML =
+    `<code>https://${r.upstream_host}</code> is a white-labelled
+     <a href="https://blynk.io" target="_blank" rel="noreferrer">Blynk</a>
+     deployment whose HTTP API accepts each unit's device token directly.
+     None of this is vendor-documented; it was established by observation.
+     Not runnable from here — every call needs a device token and reaches a real unit.`;
+
+  const groups = [];
+  (r.upstream || []).forEach(e => {
+    const g = groups.find(x => x[0] === e.group) || (groups.push([e.group, []]), groups.at(-1));
+    g[1].push(e);
+  });
+
+  document.getElementById('upList').innerHTML = groups.map(([g, eps]) => `
+    <h3 class="api-group">${g}</h3>
+    ${eps.map(e => `<div class="api-ep">
+      <div class="api-head"><code class="api-path">GET ${e.path}</code></div>
+      <p class="api-sum">${e.summary}</p>
+      <table class="api-params"><tbody>
+        ${e.params.map(p => `<tr>
+          <td class="key"><code>${p.name}</code>${
+            p.required ? '<span class="req">required</span>' : ''}</td>
+          <td>${p.does || ''}${p.values ? ` <code>${p.values}</code>` : ''}</td>
+        </tr>`).join('')}
+      </tbody></table>
+      <p class="api-ret"><b>Returns</b> ${e.returns}</p>
+      ${e.gotcha ? `<p class="api-gotcha"><b>Watch out</b> ${e.gotcha}</p>` : ''}
+    </div>`).join('')}`).join('');
+
+  document.getElementById('upRef').innerHTML = `<table>
+    <thead><tr><th colspan="3">Export <code>dataStreamId</code> is not the virtual
+      pin number. The mapping is not published; it was found by exporting each
+      stream and correlating against live pin reads.</th></tr>
+      <tr><th>dataStreamId</th><th>Windmill's name</th><th>Pin</th></tr></thead>
+    <tbody>${(r.dsids || []).map(d => `<tr>
+      <td class="key"><code>${d.id}</code></td><td>${d.name}</td>
+      <td>${d.pin ? `<code>${d.pin}</code>`
+                  : '<span class="muted">not bound to a known pin</span>'}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+/* Run a read-only endpoint and show the real response, so the shape on the
+   page is the shape the server actually returns today. */
+async function runApi(btn) {
+  const out = btn.closest('.api-ep').querySelector('.api-out');
+  const path = btn.dataset.path
+    + (btn.dataset.path === '/api/unit' ? `?unit=${encodeURIComponent(UM_FIRST())}` : '');
+  btn.disabled = true; btn.textContent = 'Running…';
+  out.hidden = false; out.textContent = 'GET ' + path + '\n\n…';
+  try {
+    const t = performance.now();
+    const d = await api(path);
+    const ms = Math.round(performance.now() - t);
+    let text = JSON.stringify(d, null, 2);
+    if (text.length > 6000) text = text.slice(0, 6000) + '\n… truncated';
+    out.textContent = `GET ${path}   ${ms} ms\n\n${text}`;
+  } catch (e) {
+    out.textContent = `GET ${path}\n\n${e.message || e}`;
+  }
+  btn.textContent = 'Run'; btn.disabled = false;
+}
+
+const UM_FIRST = () => (state.data && state.data.units[0] && state.data.units[0].name) || '';
+
+/* ---------------- watchdog ---------------- */
+
+/* One line per unit saying what the watchdog currently makes of it, and — when
+   it is flagged but nothing is happening — why it is holding off. */
+function verdictCell(u) {
+  if (u.sync === 'dropped')
+    return `<span class="tag bad">Dropped</span> no session, needs mains power`;
+  if (u.sync === 'wedged')
+    return `<span class="tag bad">Not syncing</span> quiet ${ago(u.quiet_s)}`;
+  if (u.overrun === 'overcooling')
+    return `<span class="tag warn">Overcooling</span> ${u.overrun_detail||''}`;
+  if (u.overrun === 'working-harder')
+    return `<span class="tag warn">Working harder</span> ${u.overrun_detail||''}`;
+  return `<span class="tag ok">OK</span> ${u.overrun_detail || 'reporting normally'}`;
+}
+
+function loadWatchdogTable(s) {
+  const rows = Object.entries(s.units || {});
+  const flagged = rows.filter(([, u]) =>
+    u.sync !== 'ok' || (u.overrun && u.overrun !== 'ok'));
+  const c = s.config || {};
+  if (state.flagged !== flagged.length) { state.flagged = flagged.length; renderTabs(); }
+
+  const COOLDOWNS = [[600,'10 min'],[900,'15 min'],[1800,'30 min'],
+                     [3600,'1 hour'],[7200,'2 hours'],[21600,'6 hours']];
+  const sel = document.getElementById('cooldownSel');
+  if (document.activeElement !== sel)
+    sel.innerHTML = COOLDOWNS.map(([v,l]) =>
+      `<option value="${v}"${v===c.overrun_cooldown_s?' selected':''}>${l}</option>`).join('');
+
+  document.getElementById('watchSub').innerHTML =
+    `Checking all ${rows.length} units every ${Math.round((c.interval_s||120)/60)} min. `
+    + `<b>${flagged.length||'No'}</b> flagged right now. `
+    + `Auto-resync is <b>${s.auto?'on':'off'}</b>; auto-fix overrun is `
+    + `<b>${s.overrun_auto?'on':'off'}</b>.`
+    + (flagged.length && !s.auto && !s.overrun_auto
+       ? ' Both switches are off, so nothing will be acted on.' : '');
+
+  document.getElementById('watchTable').innerHTML = `<table><thead><tr>
+      <th>Unit</th><th>Floor</th><th>What the watchdog sees</th>
+      <th>Duty</th><th>Floor</th><th>Fixes 24h</th><th>Status</th>
+    </tr></thead><tbody>
+    ${rows.map(([name, u]) => {
+      const held = u.held_until && u.held_until > (s.now||0);
+      const status = u.gave_up ? '<span class="muted">gave up — not a resync fix</span>'
+        : held ? `<span class="muted">${u.held_reason}, next try in ${
+                   ago(u.held_until - s.now).replace(' ago','')}</span>`
+        : u.last_resync || u.last_overrun_resync
+          ? `last fix ${clock(Math.max(u.last_resync||0, u.last_overrun_resync||0))}`
+          : '<span class="muted">never touched</span>';
+      return `<tr>
+        <td class="key">${ROOM.get(name)||name}</td>
+        <td>${u.floor||'–'}</td>
+        <td>${verdictCell(u)}</td>
+        <td>${u.duty==null?'–':Math.round(u.duty*100)+'%'}</td>
+        <td>${u.floor_duty==null?'–':Math.round(u.floor_duty*100)+'%'}</td>
+        <td>${u.attempts_24h||0}</td>
+        <td>${status}</td></tr>`;
+    }).join('')}
+  </tbody></table>`;
+
+  document.getElementById('watchRules').textContent =
+    `Flags a unit as not syncing after ${Math.round((c.wedged_s||3600)/60)} min with no `
+    + `heartbeat, and as overcooling when more than ${Math.round((c.overcool_frac||.5)*100)}% `
+    + `of its running time in the last ${Math.round((c.overrun_window_s||3600)/3600)} h was spent `
+    + `${c.overcool_margin_f||2}°F or more below its setpoint. `
+    + `Waits ${Math.round((c.resync_cooldown_s||3600)/3600)} h between sync fixes `
+    + `(max ${c.resync_max||3}) and ${Math.round((c.overrun_cooldown_s||7200)/3600)} h `
+    + `between overrun fixes (max ${c.overrun_max||2}), then gives up rather than `
+    + `cycling hardware indefinitely.`;
+}
+
+/* Same preset vocabulary as the charts, plus "All" -- the log is sparse enough
+   that wanting the whole thing is normal, and a very long range would mislabel
+   it as e.g. "Last 12 months" when the log is a day old. */
+const LOG_RANGES = [['6h','6h'],['24h','24h'],['7d','7 days'],
+                    ['30d','30 days'],['all','All']];
+
+function renderLogControls(s) {
+  document.getElementById('logRanges').innerHTML = LOG_RANGES.map(([r,l]) =>
+    `<button data-range="${r}" aria-pressed="${state.logRange===r}">${l}</button>`).join('');
+  const sel = document.getElementById('logUnit');
+  if (document.activeElement !== sel) {
+    const names = Object.keys(s.units || {});
+    sel.innerHTML = `<option value="">All units</option>` + names.map(n =>
+      `<option value="${n}"${state.logUnit===n?' selected':''}>${ROOM.get(n)||n}</option>`).join('');
+  }
+  const r = s.events_range || {};
+  const el = document.getElementById('logCount');
+  el.textContent = !r.total ? 'No events in this range'
+    : r.shown < r.total ? `Showing the newest ${r.shown} of ${r.total}`
+    : `${r.total} event${r.total===1?'':'s'} · ${r.label || ''}`.trim();
+}
+
+/* The unit decides this, not us: v11 is Windmill's own Filter Change Indicator,
+   confirmed against the named export stream. So there is no threshold here to
+   argue with -- only how long the filter has been in, and how that compares to
+   where the indicator has actually been seen to trip. */
+const FILTER_STATE = {
+  due:     ['Change it', 'bad'],
+  soon:    ['Getting close', 'warn'],
+  ok:      ['Fine', 'ok'],
+  unknown: ['Unknown', 'warn'],
+};
+
+/* v113 is undocumented, but it is constant per unit and it predicts the fault
+   exactly: every unit reporting 3 accumulates protocol failures and overcools,
+   every unit reporting 0 does not. Signal strength does not predict it; this
+   does. Surfaced because it means the problem tracks a fixed property of the
+   hardware, not the room or the usage — and so is not something a resync can
+   ever fix. */
+function renderRevisions(s) {
+  const rows = Object.entries(s.units || {});
+  if (!rows.length) return;
+  const rev = n => {
+    const p = (s.pins || {})[n];
+    return p == null ? null : p;
+  };
+  const groups = new Map();
+  rows.forEach(([n, u]) => {
+    const k = u.revision == null ? 'not reported' : String(u.revision);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push([n, u]);
+  });
+  const bad = rows.filter(([, u]) => u.revision === 3);
+  document.getElementById('revSub').innerHTML = !bad.length
+    ? 'No unit is reporting the fault-prone revision.'
+    : `<b>${bad.length} of ${rows.length}</b> units report <code>v113 = 3</code>. `
+      + `Every one of those accumulates protocol failures and overcools; every unit `
+      + `reporting <code>0</code> does neither. It is constant per unit, so this is `
+      + `a property of the hardware rather than the room — which is why a resync `
+      + `never cures it.`;
+  document.getElementById('revTable').innerHTML = `<table><thead><tr>
+      <th>Unit</th><th>v113</th><th>Sync failures</th><th>Cooling with no demand</th>
+    </tr></thead><tbody>
+    ${rows.sort((a,b) => (b[1].revision??-1) - (a[1].revision??-1)).map(([n,u]) => `<tr>
+      <td class="key">${ROOM.get(n)||n}</td>
+      <td>${u.revision == null ? '<span class="muted">not reported</span>'
+            : u.revision === 3 ? `<span class="tag bad">3</span>`
+            : `<span class="tag ok">${u.revision}</span>`}</td>
+      <td>${u.failures == null ? '–' : fmt(u.failures)}</td>
+      <td>${u.overrun && u.overrun !== 'ok'
+            ? `<span class="tag warn">${u.overrun}</span>` : 'no'}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+}
+
+/* The guard does the job a broken firmware thermostat isn't doing: switch the
+   unit off when the room is already below its setpoint and the compressor is
+   still running. Opt-in per unit, because it drives hardware and only some
+   units need it. */
+async function loadGuard() {
+  try { renderGuard(await api('/api/guard')); }
+  catch (e) {
+    document.getElementById('guardSub').textContent =
+      'Could not load the guard: ' + (e.message || e);
+  }
+}
+
+function renderGuard(g) {
+  const rows = Object.entries(g.units || {});
+  const box = document.getElementById('autoGuard');
+  if (document.activeElement !== box) box.checked = !!g.enabled;
+  const on = rows.filter(([, u]) => u.enabled);
+  const holding = rows.filter(([, u]) => u.held);
+  const c = g.config || {};
+  document.getElementById('guardSub').innerHTML = !g.enabled
+    ? (g.deployment === false
+        ? `<b>Off at the deployment level.</b> The switch here cannot turn it on: `
+          + `set <code>WINDMILL_GUARD=1</code> in <code>.env</code> and restart. `
+          + `That gate exists so software control of a compressor is a deliberate `
+          + `choice, not something a stray click enables.`
+        : `<b>Paused.</b> Nothing is switched automatically. Turn the switch back `
+          + `on, then opt in the units whose own thermostat misbehaves.`)
+    : `On for <b>${on.length || 'no'}</b> unit${on.length===1?'':'s'}`
+      + (holding.length ? `, currently holding ${holding.map(([n])=>ROOM.get(n)||n).join(', ')} off` : '')
+      + `. Switches off below ${c.margin_f}°F under setpoint, back on at `
+      + `${c.on_margin_f}°F above — or after ${Math.round((c.max_off_s||1200)/60)} min `
+      + `regardless, since these units' temperature reading cannot always be `
+      + `trusted once they are off. ${Math.round((c.min_off_s||300)/60)} min `
+      + `minimum either way, so the compressor is never short-cycled.`;
+
+  document.getElementById('guardTable').innerHTML = `<table><thead><tr>
+      <th>Unit</th><th>Guard</th><th>Room</th><th>State</th><th>What it makes of it</th>
+    </tr></thead><tbody>
+    ${rows.map(([n, u]) => `<tr>
+      <td class="key">${ROOM.get(n)||n}</td>
+      <td><button class="seg guard-toggle" data-unit="${encodeURIComponent(n)}"
+            data-on="${u.enabled ? 0 : 1}"
+            aria-pressed="${!!u.enabled}">${u.enabled ? 'On' : 'Off'}</button></td>
+      <td>${u.temp == null ? '–' : fmt(u.temp,1) + '°'}${
+           u.target == null ? '' : ` <span class="muted">/ ${fmt(u.target,0)}°</span>`}</td>
+      <td>${u.held ? '<span class="tag bad">held off</span>'
+            : u.power === 0 ? '<span class="muted">off</span>'
+            : '<span class="tag ok">running</span>'}</td>
+      <td>${u.detail || ''}</td></tr>`).join('')}
+  </tbody></table>`;
+
+  document.getElementById('guardNote').textContent =
+    'A unit switched off at 70°F was seen reporting 64°F three minutes later while '
+    + 'drawing nothing — that is the sensor sitting in cold air at the coil, not '
+    + 'the room. So there is a second way back on that does not depend on it. '
+    + 'It only acts on a unit that is connected, reporting fresh readings and not '
+    + 'mid-resync — and it stands down if you switch a held unit back on yourself. '
+    + 'A unit it is holding off is excluded from saved settings, so "off" never '
+    + 'becomes the state a resync restores.';
+
+  document.querySelectorAll('.guard-toggle').forEach(b =>
+    b.addEventListener('click', async () => {
+      await api(`/api/guard?unit=${b.dataset.unit}&on=${b.dataset.on}`);
+      loadGuard();
+    }));
+}
+
+function renderFilters(s) {
+  const rows = Object.entries(s.filters || {});
+  if (!rows.length) return;
+  const due = rows.filter(([, f]) => f.verdict === 'due');
+  const soon = rows.filter(([, f]) => f.verdict === 'soon');
+  const any = rows[0][1];
+
+  document.getElementById('filterSub').innerHTML = due.length
+    ? `<b>${due.map(([n]) => ROOM.get(n) || n).join(', ')}</b> `
+      + `${due.length > 1 ? 'are' : 'is'} asking for a filter change.`
+      + (soon.length ? ` ${soon.map(([n]) => ROOM.get(n)||n).join(', ')} getting close.` : '')
+    : soon.length
+      ? `${soon.map(([n]) => ROOM.get(n)||n).join(', ')} getting close to a filter change.`
+      : 'Every filter is reporting fine.';
+
+  document.getElementById('filterTable').innerHTML = `<table><thead><tr>
+      <th>Unit</th><th>Filter</th><th>Hours in</th><th>Last changed</th><th>Detail</th>
+    </tr></thead><tbody>
+    ${rows.sort((a, b) => (b[1].hours || 0) - (a[1].hours || 0)).map(([name, f]) => {
+      const [label, cls] = FILTER_STATE[f.verdict] || FILTER_STATE.unknown;
+      return `<tr>
+        <td class="key">${ROOM.get(name) || name}</td>
+        <td><span class="tag ${cls}">${label}</span></td>
+        <td>${f.hours == null ? '–' : fmt(f.hours) + ' h'}</td>
+        <td>${f.changed_at ? dayLbl(f.changed_at)
+              : '<span class="muted">not since logging began</span>'}</td>
+        <td>${f.detail || ''}</td></tr>`;
+    }).join('')}
+  </tbody></table>`;
+
+  // Say what is and is not known about where the indicator trips.
+  const b = any.bracket;
+  document.getElementById('filterNote').textContent = any.threshold
+    ? `The indicator has been seen to trip at about ${Math.round(any.threshold)} `
+      + `hours of runtime; a unit is called out at ${Math.round(any.threshold*0.85)} h.`
+    : b && b[0] != null && b[1] != null
+      ? `Windmill does not publish the runtime at which a filter is called dirty, `
+        + `and no filter has changed state while this has been logging. From the `
+        + `units themselves it sits somewhere above ${fmt(b[0])} h and no higher `
+        + `than ${fmt(b[1])} h. Change one and the exact figure gets learned.`
+      : `Each unit reports its own filter status; runtime is hours since that `
+        + `filter was last reset.`;
+}
+
+async function loadSync() {
+  try {
+    const s = await api(`/api/sync?range=${state.logRange}`);
+    if (s.error) return;
+    renderFilters(s);
+    const box = document.getElementById('autoResync');
+    if (document.activeElement !== box) box.checked = !!s.auto;
+    const ov = document.getElementById('autoOverrun');
+    if (document.activeElement !== ov) ov.checked = !!s.overrun_auto;
+    loadWatchdogTable(s);
+    renderRevisions(s);
+    loadGuard();
+    renderLogControls(s);
+    const ev = (s.events || []).filter(e => !state.logUnit || e.unit === state.logUnit);
+    document.getElementById('watchSection').hidden = false;
+    document.getElementById('watchLog').innerHTML = !ev.length
+      ? `<p class="note">Nothing logged in this range${
+           state.logUnit ? ` for ${ROOM.get(state.logUnit)||state.logUnit}` : ''}.</p>`
+      : `<table><thead><tr>
+      <th>When</th><th>Unit</th><th>Saw</th><th>Did</th><th>Detail</th></tr></thead><tbody>
+      ${ev.map(e => `<tr><td title="${new Date(e.ts*1000).toLocaleString()}">${
+          dayLbl(e.ts)} ${clock(e.ts)}</td><td>${ROOM.get(e.unit)||e.unit}</td>
+        <td>${e.state||'–'}</td><td>${e.action||'<span class="muted">noted only</span>'}</td>
+        <td>${e.detail||''}</td></tr>`).join('')}
+    </tbody></table>`;
+  } catch (e) { /* advisory view; never block the page on it */ }
+}
+
+document.getElementById('autoResync').addEventListener('change', e =>
+  api(`/api/sync?auto=${e.target.checked ? 1 : 0}`).then(loadSync));
+document.getElementById('autoOverrun').addEventListener('change', e =>
+  api(`/api/sync?overrun=${e.target.checked ? 1 : 0}`).then(loadSync));
+document.getElementById('autoGuard').addEventListener('change', e =>
+  api(`/api/guard?auto=${e.target.checked ? 1 : 0}`).then(loadGuard));
+document.getElementById('cooldownSel').addEventListener('change', e =>
+  api(`/api/sync?cooldown=${e.target.value}`).then(loadSync));
+document.getElementById('logRanges').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  state.logRange = b.dataset.range;
+  try { localStorage.setItem('windmill.logRange', state.logRange); } catch (err) {}
+  loadSync();
+});
+document.getElementById('logUnit').addEventListener('change', e => {
+  state.logUnit = e.target.value;
+  loadSync();
+});
+document.getElementById('syncAll').addEventListener('click', e =>
+  resyncMany(e.target, ''));
+
+/* ---------------- tabs ----------------
+   Charts size themselves from clientWidth, which is 0 while a tab is hidden,
+   so anything drawn off-screen comes back at the fallback width. Every tab
+   redraws its own charts when it becomes visible rather than on load. */
+const TABS = [
+  ['controls', 'Controls'],
+  ['watchdog', 'Watchdog'],
+  ['energy',   'Energy'],
+  ['climate',  'Climate'],
+  ['analysis', 'Analysis'],
+  ['data',     'Data'],
+  ['schedule', 'Schedule'],
+  ['settings', 'Settings'],
+  ['audit',    'Audit'],
+  ['api',      'API'],
+];
+
+/* Tabs showing history: these get the range picker, the rate, the unit
+   filter and the range-dependent stat row. The rest show live state, where
+   a time range and a price per kWh mean nothing. */
+const RANGE_TABS = new Set(['energy', 'climate', 'analysis', 'data']);
+const LIVE_TABS  = new Set(['controls', 'watchdog']);
+
+function renderTabs() {
+  document.getElementById('tabs').innerHTML = TABS.map(([id, label]) =>
+    `<button role="tab" data-tab="${id}" aria-selected="${state.tab===id}"
+       aria-controls="tab-${id}">${label}${
+       id==='watchdog' && state.flagged ? `<span class="count"
+         title="${state.flagged} unit(s) the watchdog has flagged">${state.flagged}⚠</span>`:''
+     }</button>`).join('');
+  document.querySelectorAll('#tabs button').forEach(b =>
+    b.addEventListener('click', () => showTab(b.dataset.tab)));
+  document.querySelectorAll('.tab').forEach(el =>
+    el.hidden = el.dataset.tab !== state.tab);
+  syncToolbars();
+}
+
+/* Show only the toolbar the current tab can act on. */
+function syncToolbars() {
+  const ranged = RANGE_TABS.has(state.tab);
+  document.getElementById('rangeBar').hidden = !ranged;
+  document.getElementById('statsRow').hidden = !ranged;
+  document.getElementById('unitFilter').hidden = !ranged;
+  document.getElementById('liveBar').hidden = !LIVE_TABS.has(state.tab);
+  // "Show all units" is doubly conditional: only on a ranged tab, and only
+  // when something is actually filtered out.
+  document.getElementById('clearFilter').hidden = !ranged || !state.hidden.size;
+}
+
+function showTab(id) {
+  state.tab = id;
+  localStorage.setItem('windmill.tab', id);
+  renderTabs();
+  redrawTab();
+}
+
+/* Redraw whichever charts the visible tab owns, at their real width. */
+function redrawTab() {
+  if (!state.data) return;
+  const d = filtered(state.data);
+  if (state.tab === 'energy')  { renderBars(d); renderTrend(d); loadMeter(); }
+  if (state.tab === 'climate') { renderTemps(d); }
+  if (state.tab === 'analysis'){ loadForecast(); }
+  if (state.tab === 'api')     { loadApiDocs(); loadIdentify(); }
+  if (state.tab === 'settings'){ loadUnits(); loadBackup(); }
+  if (state.tab === 'audit')   { loadAudit(); }
+  if (state.tab === 'schedule'){ loadSchedules(); }
+}
+
+applyTheme(state.theme, false);   // paints the toggle; the theme itself was
+                                  // already set by the inline head script
+syncToolbars();   // before the first fetch, so the wrong bar never flashes
+load();
+setInterval(() => {
+  if (document.hidden) return;
+  load();
+  if (UM.unit) loadUnit();   // the detail panel says 'live', so keep it live
+}, 30000);
+
+let resizeTimer = null;
+addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(redrawTab, 160);
+});
+</script>
+</body>
+</html>

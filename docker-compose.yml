@@ -1,0 +1,19 @@
+services:
+  windmill:
+    build: .
+    image: windmill-dashboard
+    container_name: windmill-dashboard
+    restart: unless-stopped
+    # Published on loopback only. These endpoints switch real air conditioners
+    # on and off and have no authentication, so reaching them from elsewhere on
+    # the network should be a deliberate choice -- put it behind Tailscale or a
+    # reverse proxy rather than changing this to 0.0.0.0.
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: America/New_York
+    # The database is a single file being written continuously; a hard kill can
+    # leave a WAL to recover. Give it time to close cleanly.
+    stop_grace_period: 30s
