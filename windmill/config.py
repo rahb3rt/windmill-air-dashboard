@@ -105,6 +105,13 @@ BACKUP_KEEP = int(_ENV.get("WINDMILL_BACKUP_KEEP", "14") or 14)
 BACKUP_INTERVAL_H = float(_ENV.get("WINDMILL_BACKUP_INTERVAL_H", "20") or 20)
 BACKUP_ENABLED = _ENV.get("WINDMILL_BACKUP_ENABLED", "1") != "0"
 
+#: Bar Eco outright. On these units Eco is not a setting anyone chose -- they
+#: drop into it on their own and after most writes, and it is the mode that
+#: overcools. Barred rather than merely corrected: the give-up limit that keeps
+#: the watchdog from fighting faulty hardware forever is right for ordinary
+#: drift, but it leaves a unit sitting in Eco for the rest of the hour.
+NO_ECO = _ENV.get("WINDMILL_NO_ECO", "1") != "0"
+
 #: How the guard stops a unit cooling: "fan" (default) or "off". Fan-only stops
 #: the compressor while leaving the blower running, which keeps the temperature
 #: sensor -- mounted behind the intake grille -- reading room air rather than a

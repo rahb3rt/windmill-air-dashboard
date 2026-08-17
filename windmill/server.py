@@ -714,6 +714,7 @@ def watchdog():
             run_schedules(con)
             check_restore(con)
             enforce_defaults(con)
+            bar_eco(con)
             if now >= next_guard:
                 next_guard = now + GUARD_INTERVAL
                 guard.run(con, blynk.control,
@@ -794,6 +795,9 @@ def check_alerts(con, sync_states, filter_report):
 #: How many times to re-assert settings a unit is drifting away from before
 #: giving up on its stored state and falling back to the configured defaults.
 RESTORE_TRIES = 2
+
+#: The mode nobody wants.
+ECO = 2
 
 #: How stale a reading may be and still say what a unit is set to. Every pin is
 #: rewritten at least once a keyframe, so twice that means the unit has gone
@@ -978,6 +982,69 @@ def enforce_defaults(con):
                       f"it had drifted to {blynk.settings_label(actual)}; "
                       f"re-sent {', '.join(r['written']) or 'nothing'}",
                       bool(r.get("written")), source="watchdog")
+
+
+#: A unit may be put back out of Eco this many times an hour. Far higher than
+#: the limit on ordinary drift, because a unit left in Eco is the complaint
+#: rather than a setting to be philosophical about -- but still bounded, so a
+#: unit that truly cannot hold Cool says so once instead of writing forever.
+ECO_MAX_PER_HOUR = 30
+
+
+def bar_eco(con):
+    """Take a unit out of Eco, every time, whatever else is going on.
+
+    Measured over one day: Spare Room spent 102 minutes in Eco across nine
+    spells, one of them 50 minutes long. Roughly half the switches into Eco had
+    nothing before them -- the units do it by themselves -- and the rest
+    followed a write, the same refusal that makes one of them power itself off
+    after a resync.
+
+    This runs where `enforce_defaults` deliberately does not: during the settle
+    window after a resync, which is exactly when a unit snaps back to Eco, and
+    without that loop's four-an-hour give-up. Eco is treated as a fault state.
+
+    Choosing Eco yourself still works. That is a statement of intent and is left
+    alone for as long as any other override.
+    """
+    if not config.NO_ECO:
+        return
+    now = int(time.time())
+    for device in config.DEVICES:
+        unit = device["name"]
+        want = defaults_for(con, unit).get(blynk.MODE, blynk.DEFAULTS[blynk.MODE])
+        if blynk.num(want) == ECO:
+            continue                       # this unit is meant to be on Eco
+        state = reported_state(con, unit, (blynk.MODE,), now)
+        if state is None or blynk.num(state[blynk.MODE]) != ECO:
+            continue
+        # You picked it: your choice outranks this for as long as any other.
+        at, src = store.settings_changed(con, unit).get(blynk.MODE, (0, None))
+        stored = store.get_settings(con, unit).get(blynk.MODE)
+        if (src == "dashboard" and stored is not None and blynk.num(stored) == ECO
+                and now - at < OVERRIDE_S):
+            continue
+        # The guard holds a unit on fan, not cool. Putting it back to cool here
+        # would undo the guard and start the compressor it just stopped.
+        target = blynk.num(guard.FAN_ONLY) if guard.held(con, unit) else blynk.num(want)
+        if store.count_audit(con, target=unit, action="took it out of Eco",
+                             since=now - 3600) >= ECO_MAX_PER_HOUR:
+            if store.count_audit(con, target=unit, action="stuck in Eco",
+                                 since=now - 3600) == 0:
+                record_action(unit, "stuck in Eco",
+                              f"it has gone back to Eco more than "
+                              f"{ECO_MAX_PER_HOUR} times an hour and will not "
+                              f"hold {blynk.MODES[int(target)]}; that is the "
+                              f"unit failing, not a setting problem",
+                              False, source="watchdog")
+            continue
+        r = blynk.control(device, "mode", target)
+        record_action(unit, "took it out of Eco",
+                      f"it had gone to Eco on its own; set back to "
+                      f"{blynk.MODES[int(target)]}"
+                      + ("" if r.get("ok") else
+                         f" -- {r.get('detail') or r.get('reason')}"),
+                      bool(r.get("ok")), source="watchdog")
 
 
 def check_rejections(con):
