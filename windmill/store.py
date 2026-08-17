@@ -105,10 +105,20 @@ CREATE TABLE IF NOT EXISTS schedules (
 -- which meant adding a unit was a text-editor-and-restart job. Holding them
 -- here lets the dashboard add one, and lets a unit be renamed without its
 -- history being orphaned. `.env` is still read once, to seed this.
+-- A unit's own record: what it is, and what it should be set to. The defaults
+-- live here rather than in unit_settings because they are a property of the
+-- unit, not an observation of it -- and because these units drift, so there has
+-- to be somewhere that says what "correct" means that the drift cannot reach.
+--
+-- unit_settings still holds the last known *actual* desired state, which is
+-- what a resync restores. NULL here means "use the system-wide default".
 CREATE TABLE IF NOT EXISTS units (
   name TEXT PRIMARY KEY, token TEXT NOT NULL, position INTEGER,
   enabled INTEGER NOT NULL DEFAULT 1, added_at INTEGER, source TEXT,
-  label TEXT
+  label TEXT,
+  default_power INTEGER, default_target REAL,
+  default_mode INTEGER, default_fan INTEGER,
+  enforce INTEGER NOT NULL DEFAULT 1
 ) WITHOUT ROWID;
 
 -- which floor each unit is on, so a whole floor can be set at once. Free text
@@ -148,9 +158,26 @@ def connect():
         # how an estimated hour was produced: runtime | idle | cohort
         con.execute("ALTER TABLE hourly ADD COLUMN method TEXT")
         con.commit()
+    us_cols = {r["name"] for r in con.execute("PRAGMA table_info(unit_settings)")}
     unit_cols = {r["name"] for r in con.execute("PRAGMA table_info(units)")}
     if unit_cols and "label" not in unit_cols:
         con.execute("ALTER TABLE units ADD COLUMN label TEXT")
+        con.commit()
+    for col, kind in (("default_power", "INTEGER"), ("default_target", "REAL"),
+                      ("default_mode", "INTEGER"), ("default_fan", "INTEGER"),
+                      ("enforce", "INTEGER NOT NULL DEFAULT 1")):
+        if unit_cols and col not in unit_cols:
+            con.execute(f"ALTER TABLE units ADD COLUMN {col} {kind}")
+    con.commit()
+    if unit_cols and not get_meta(con, "defaults_seeded"):
+        # Units that predate this table get mode and fan, which is what drifts,
+        # and no default power or temperature -- so nothing switches on or
+        # changes temperature behind your back the first time this runs. Done
+        # once, by flag: a default you deliberately cleared must stay cleared.
+        con.execute("UPDATE units SET default_mode=COALESCE(default_mode,?), "
+                    "default_fan=COALESCE(default_fan,?)",
+                    (config.DEFAULT_MODE, config.DEFAULT_FAN))
+        set_meta(con, "defaults_seeded", "1")
         con.commit()
     dev_cols = {r["name"] for r in con.execute("PRAGMA table_info(devices)")}
     for col, kind in (("fw_version", "TEXT"), ("fw_build", "TEXT"),
@@ -283,9 +310,16 @@ def unit_rows(con):
              "position": r["position"],
              # Enough to tell two units apart when pasting tokens, and no
              # more: this value grants full control of an appliance.
-             "token_hint": ("…" + r["token"][-4:]) if r["token"] else "missing"}
+             "token_hint": ("…" + r["token"][-4:]) if r["token"] else "missing",
+             "enforce": bool(r["enforce"]),
+             "defaults": {pin: r[col] for pin, col in DEFAULT_COLS.items()
+                          if r[col] is not None}}
             for r in con.execute(
                 "SELECT * FROM units ORDER BY position, name")]
+
+
+def unit_row(con, name):
+    return con.execute("SELECT * FROM units WHERE name=?", (name,)).fetchone()
 
 
 def add_unit(con, name, token, position=None, source="dashboard"):
@@ -300,9 +334,12 @@ def add_unit(con, name, token, position=None, source="dashboard"):
     if position is None:
         r = con.execute("SELECT MAX(position) p FROM units").fetchone()
         position = ((r["p"] or 0) + 1) if r else 1
-    con.execute("INSERT INTO units(name,token,position,enabled,added_at,source) "
-                "VALUES (?,?,?,1,?,?)",
-                (name, token, position, int(time.time()), source))
+    # A new unit starts on the same mode and fan as the rest, which is what
+    # these units drift off; its power and temperature are left free.
+    con.execute("INSERT INTO units(name,token,position,enabled,added_at,source,"
+                "default_mode,default_fan) VALUES (?,?,?,1,?,?,?,?)",
+                (name, token, position, int(time.time()), source,
+                 config.DEFAULT_MODE, config.DEFAULT_FAN))
     con.commit()
     return name
 
@@ -462,6 +499,48 @@ def settling_until(con, unit, now=None):
     return until if until > (now or time.time()) else None
 
 
+#: Which column on `units` backs which datastream.
+DEFAULT_COLS = {"v0": "default_power", "v2": "default_target",
+                "v3": "default_mode", "v4": "default_fan"}
+
+
+def unit_defaults(con, unit, fallback=None):
+    """{pin: value} this unit should be set to, falling back to the system-wide
+    default for anything it has not been given one of."""
+    r = con.execute(
+        f"SELECT {', '.join(DEFAULT_COLS.values())}, enforce FROM units WHERE name=?",
+        (unit,)).fetchone()
+    out = dict(fallback or {})
+    if not r:
+        return out
+    for pin, col in DEFAULT_COLS.items():
+        if r[col] is not None:
+            out[pin] = float(r[col])
+    return out
+
+
+def set_unit_defaults(con, unit, values):
+    """Set some of a unit's defaults. A value of None clears it back to the
+    system-wide default rather than pinning it to nothing."""
+    cols = {DEFAULT_COLS[p]: v for p, v in values.items() if p in DEFAULT_COLS}
+    if not cols:
+        return False
+    con.execute(f"UPDATE units SET {','.join(c + '=?' for c in cols)} WHERE name=?",
+                (*[None if v is None else float(v) for v in cols.values()], unit))
+    con.commit()
+    return True
+
+
+def enforcing(con, unit):
+    r = con.execute("SELECT enforce FROM units WHERE name=?", (unit,)).fetchone()
+    return bool(r["enforce"]) if r else False
+
+
+def set_enforcing(con, unit, on):
+    con.execute("UPDATE units SET enforce=? WHERE name=?", (1 if on else 0, unit))
+    con.commit()
+
+
 def save_settings(con, unit, values, source, ts=None):
     """Record a unit's settings as the state to restore it to.
 
@@ -470,13 +549,21 @@ def save_settings(con, unit, values, source, ts=None):
     how a change made in the Windmill app itself gets picked up).
     """
     ts = int(ts or time.time())
+    # A unit that is being held to its defaults must not learn its own drift:
+    # observation may not overwrite a pin the unit has a default for.
+    protected = (set(unit_defaults(con, unit)) if source == "observed"
+                 and enforcing(con, unit) else set())
     rows = [(unit, pin, float(val), ts, source)
-            for pin, val in values.items() if val is not None]
+            for pin, val in values.items()
+            if val is not None and pin not in protected]
     if not rows:
         return 0
     con.executemany(
-        "INSERT OR REPLACE INTO unit_settings(unit,pin,val,updated_at,source) "
-        "VALUES (?,?,?,?,?)", rows)
+        "INSERT INTO unit_settings(unit,pin,val,updated_at,source) "
+        "VALUES (?,?,?,?,?) "
+        "ON CONFLICT(unit,pin) DO UPDATE SET val=excluded.val, "
+        "updated_at=excluded.updated_at, source=excluded.source",
+        rows)
     con.commit()
     return len(rows)
 
@@ -509,12 +596,14 @@ def log_audit(con, source, target, action, detail=None, ok=True, ts=None):
     con.commit()
 
 
-def _audit_where(source, target, since, until):
+def _audit_where(source, target, since, until, action=None):
     q, args = "", []
     if source:
         q += " AND source=?"; args.append(source)
     if target:
         q += " AND target=?"; args.append(target)
+    if action:
+        q += " AND action=?"; args.append(action)
     if since:
         q += " AND ts>=?"; args.append(int(since))
     if until:
@@ -522,15 +611,19 @@ def _audit_where(source, target, since, until):
     return q, args
 
 
-def audit_events(con, source=None, target=None, since=None, until=None, limit=300):
-    where, args = _audit_where(source, target, since, until)
+def audit_events(con, source=None, target=None, since=None, until=None,
+                 limit=300, action=None):
+    where, args = _audit_where(source, target, since, until, action)
     return [dict(r) for r in con.execute(
         "SELECT ts,source,target,action,detail,ok FROM audit WHERE 1=1" + where +
         " ORDER BY ts DESC LIMIT ?", (*args, limit))]
 
 
-def count_audit(con, source=None, target=None, since=None, until=None):
-    where, args = _audit_where(source, target, since, until)
+def count_audit(con, source=None, target=None, since=None, until=None, action=None):
+    """How many audit rows match. `action` matters for the rate limits: they
+    count what was actually *done*, and doing things is recorded here rather
+    than in sync_events."""
+    where, args = _audit_where(source, target, since, until, action)
     r = con.execute("SELECT COUNT(*) n FROM audit WHERE 1=1" + where, args).fetchone()
     return r["n"] if r else 0
 
@@ -621,6 +714,12 @@ def last_action(con, unit, action):
     r = con.execute("SELECT MAX(ts) t FROM sync_events WHERE unit=? AND action=?",
                     (unit, action)).fetchone()
     return r["t"] if r and r["t"] else None
+
+
+def settings_changed(con, unit):
+    """{pin: (when it was last set, what set it)} for a unit's settings."""
+    return {r["pin"]: (r["updated_at"], r["source"]) for r in con.execute(
+        "SELECT pin, updated_at, source FROM unit_settings WHERE unit=?", (unit,))}
 
 
 def latest(con, unit, pin, not_before=None):

@@ -346,6 +346,17 @@ def migrate_jsonl(con):
     return n
 
 
+def defaults_for(con, unit):
+    """What this unit should be set to.
+
+    The single place anything asks that question. It reads the unit's own row,
+    falling back to the system-wide `blynk.DEFAULTS` for anything that row does
+    not specify -- so a unit can differ without every unit having to be
+    configured, and nothing has its own idea of what "default" means.
+    """
+    return store.unit_defaults(con, unit, fallback=blynk.DEFAULTS)
+
+
 def seed_defaults(con):
     """Give every unit a row in the database if it has none.
 
@@ -360,7 +371,7 @@ def seed_defaults(con):
         name = device["name"]
         if store.get_settings(con, name):
             continue
-        store.save_settings(con, name, dict(blynk.DEFAULTS), "default")
+        store.save_settings(con, name, defaults_for(con, name), "default")
         seeded.append(name)
     return seeded
 
@@ -520,7 +531,7 @@ def do_resync(con, device, trigger=None):
     # nothing observed in that window is mistaken for a deliberate setting.
     store.mark_settling(con, name, time.time() + SETTLE_QUIET)
     result = blynk.resync(
-        device, desired=desired,
+        device, desired=desired, defaults=defaults_for(con, name),
         record=lambda s: store.log_sync(
             con, name, None, "snapshot", json.dumps(s, sort_keys=True)))
     # A successful restore is the state to keep; a failed one must not become
@@ -702,6 +713,7 @@ def watchdog():
             # overrun check could run, no matter what its own interval said.
             run_schedules(con)
             check_restore(con)
+            enforce_defaults(con)
             if now >= next_guard:
                 next_guard = now + GUARD_INTERVAL
                 guard.run(con, blynk.control,
@@ -834,18 +846,19 @@ def check_restore(con):
         if tries >= RESTORE_TRIES:
             # Its stored state keeps being refused. Stop insisting on it and put
             # the unit somewhere sane instead.
+            want = defaults_for(con, unit)
             if blynk.num(actual.get(blynk.POWER)) == 1 and \
                all(blynk.num(actual[p]) == blynk.num(v)
-                   for p, v in blynk.DEFAULTS.items() if p in actual):
+                   for p, v in want.items() if p in actual):
                 continue                   # already on the defaults; leave it
-            r = blynk.apply_settings(device, blynk.DEFAULTS, verify=False, settle=0)
+            r = blynk.apply_settings(device, want, verify=False, settle=0)
             fixed = r.get("written") or []
-            store.save_settings(con, unit, dict(blynk.DEFAULTS), "default")
+            store.save_settings(con, unit, dict(want), "default")
             store.set_meta(con, key, 0)
             record_action(unit, "reset to defaults",
                           f"it would not hold its saved settings after "
                           f"{RESTORE_TRIES} attempts, so it is now "
-                          f"{blynk.settings_label(blynk.DEFAULTS)}"
+                          f"{blynk.settings_label(want)}"
                           + (f" ({', '.join(fixed)} rewritten)" if fixed else ""),
                           bool(fixed), source="watchdog")
             continue
@@ -859,6 +872,78 @@ def check_restore(con):
                       f"re-sent {', '.join(r['written']) or 'nothing'} "
                       f"(attempt {tries + 1} of {RESTORE_TRIES}); it had moved to "
                       f"{blynk.settings_label(actual)}",
+                      bool(r.get("written")), source="watchdog")
+
+
+#: Stop re-asserting a unit's defaults after this many corrections an hour.
+#: A unit that will not hold a setting is faulty, and a dashboard that fights it
+#: forever is just noise -- better to say so once and leave it alone.
+KEEP_MAX_PER_HOUR = 4
+#: Leave a setting alone for this long after it was set, so the loop does not
+#: react to a reading the unit has not had time to update.
+KEEP_GRACE_S = 90
+#: How long a change you made yourself outranks the unit's default. Long enough
+#: to be useful, short enough that the units go back to behaving on their own.
+OVERRIDE_S = 4 * 3600
+
+
+def enforce_defaults(con):
+    """Put a unit back on its configured defaults when it wanders off them.
+
+    Separate from `check_restore`, which only polices the minutes after a
+    resync. This runs all the time, because the drift does too: these units
+    return to Eco/Low every half hour or so on their own.
+
+    What "correct" means comes from the unit's own row, which is the one place
+    the drift cannot reach. Turn `enforce` off for a unit to stop this, and it
+    gives up on its own after a few corrections an hour rather than fighting
+    faulty hardware indefinitely.
+    """
+    now = int(time.time())
+    for device in config.DEVICES:
+        unit = device["name"]
+        if not store.enforcing(con, unit):
+            continue
+        wanted = store.unit_defaults(con, unit)
+        if not wanted or guard.held(con, unit) or store.settling_until(con, unit, now):
+            continue
+        fresh = now - 3 * SAMPLE_INTERVAL
+        actual = {p: store.latest(con, unit, p, not_before=fresh) for p in wanted}
+        if any(v is None for v in actual.values()):
+            continue
+        # Two reasons to leave a pin alone. A setting changed seconds ago has
+        # not been reported back yet, and the stale reading is not drift --
+        # without that the loop re-sends what you just set, four times, and
+        # spends the whole hour's budget on it. And a setting you changed
+        # yourself outranks the default for a while: you get the afternoon on
+        # fan without having to edit the unit's defaults and remember to put
+        # them back.
+        changed = store.settings_changed(con, unit)
+        def held_off(pin):
+            at, src = changed.get(pin, (0, None))
+            return now - at < (OVERRIDE_S if src == "dashboard" else KEEP_GRACE_S)
+        wrong = {p: v for p, v in wanted.items()
+                 if blynk.num(actual[p]) != blynk.num(v) and not held_off(p)}
+        if not wrong:
+            continue
+        # Counted in the audit trail, which is where actions are recorded --
+        # sync_events holds the watchdog's reasoning, not what it did.
+        if store.count_audit(con, target=unit, action="kept setting",
+                             since=now - 3600) >= KEEP_MAX_PER_HOUR:
+            if store.count_audit(con, target=unit, action="gave up keeping",
+                                 since=now - 3600) == 0:
+                record_action(unit, "gave up keeping",
+                              f"it has wandered off {', '.join(sorted(
+                                  blynk.CONTROL_OF.get(p, p) for p in wrong))} "
+                              f"more than {KEEP_MAX_PER_HOUR} times an hour; "
+                              f"that is the unit failing, not a setting problem",
+                              False, source="watchdog")
+            continue
+        r = blynk.apply_settings(device, wrong, power_last=blynk.POWER in wrong,
+                                 verify=False, settle=0)
+        record_action(unit, "kept setting",
+                      f"it had drifted to {blynk.settings_label(actual)}; "
+                      f"re-sent {', '.join(r['written']) or 'nothing'}",
                       bool(r.get("written")), source="watchdog")
 
 
@@ -983,7 +1068,11 @@ API_DOCS = [
                 {"name": "at", "does": "Minutes past local midnight."},
                 {"name": "days", "does": "Digits 0=Mon..6=Sun, e.g. 01234."},
                 {"name": "id", "does": "Which rule, for edit/delete/toggle/run."},
-                {"name": "on", "values": "0 | 1", "does": "For toggle."}],
+                {"name": "on", "values": "0 | 1", "does": "For toggle and enforce."},
+                {"name": "power|mode|fan|target",
+                 "does": "For defaults: what this unit should be set to. An empty "
+                         "value clears one back to the system-wide default; an "
+                         "omitted one is left as it is."}],
      "returns": "rules with a plain-English `text`, the next few firings, and "
                 "the scopes and fields a rule may use."},
     {"path": "/api/filter-history", "group": "Maintenance", "effect": "settings",
@@ -1067,7 +1156,9 @@ API_DOCS = [
      "params": [{"name": "unit", "required": True, "does": "Unit name."},
                 {"name": "field", "required": True, "does": "See control fields below."},
                 {"name": "value", "required": True, "does": "Validated and clamped."}],
-     "returns": "ok, pin, value. 409 if the unit has no session; 400 on a bad value."},
+     "returns": "ok, pin, value. 409 if the unit has no session; 400 on a bad "
+                "value. Sets what the unit is on now, not what it defaults to -- "
+                "a change here overrides the unit's default for four hours."},
     {"path": "/api/floor/control", "group": "Control", "effect": "hardware",
      "summary": "Change one setting across a whole floor, in parallel.",
      "params": [{"name": "floor", "does": "Floor name. Omit to hit every unit."},
@@ -1084,8 +1175,9 @@ API_DOCS = [
      "returns": "ok, applied[], failed{}."},
 
     {"path": "/api/units", "group": "Setup", "effect": "settings",
-     "summary": "The AC units themselves: list, add, rename, remove.",
-     "params": [{"name": "action", "values": "add | label | rename | remove | toggle",
+     "summary": "The AC units themselves and what each should be set to: list, add, rename, remove, defaults.",
+     "params": [{"name": "action",
+                 "values": "add | label | rename | remove | toggle | defaults | enforce",
                  "does": "Omit to list."},
                 {"name": "name", "does": "Unit name."},
                 {"name": "token", "does": "Its Blynk device token, for add."},
@@ -1093,8 +1185,12 @@ API_DOCS = [
                 {"name": "label", "does": "Display name, for label. Changing this moves nothing; renaming moves every row."},
                 {"name": "purge", "values": "1",
                  "does": "With remove: delete its history too. Off by default."},
-                {"name": "on", "values": "0 | 1", "does": "For toggle."}],
-     "returns": "each unit with its firmware version, build and last update, the last four characters of its token and nothing more -- the token itself is never returned. A rename "
+                {"name": "on", "values": "0 | 1", "does": "For toggle and enforce."},
+                {"name": "power|mode|fan|target",
+                 "does": "For defaults: what this unit should be set to. An empty "
+                         "value clears one back to the system-wide default; an "
+                         "omitted one is left as it is."}],
+     "returns": "each unit with its defaults, whether they are enforced, its firmware version, build and last update, the last four characters of its token and nothing more -- the token itself is never returned. A rename "
                 "carries every row keyed by the old name with it."},
     {"path": "/api/floors", "group": "Setup", "effect": "settings",
      "summary": "Read floor assignments, or assign one.",
@@ -1563,7 +1659,8 @@ class Handler(BaseHTTPRequestHandler):
                                "on_margin_f": guard.ON_MARGIN_F,
                                "min_off_s": guard.MIN_OFF_S,
                                "min_on_s": guard.MIN_ON_S,
-                               "max_off_s": guard.MAX_OFF_S},
+                               "max_off_s": guard.MAX_OFF_S,
+                               "method": guard.METHOD},
                 })
             except Exception as exc:
                 self._json({"ok": False,
@@ -1696,6 +1793,28 @@ class Handler(BaseHTTPRequestHandler):
                     lab = store.set_label(con, one("name"), one("label", ""))
                     self._json({"ok": True,
                                 "detail": f"{one('name')} is shown as {lab!r}"})
+                elif act == "defaults":
+                    # Empty string clears a default back to the system-wide one;
+                    # an absent field is left alone.
+                    want = {}
+                    for pin, field in blynk.CONTROL_OF.items():
+                        if not given(field):
+                            continue
+                        raw = one(field, "")
+                        want[pin] = None if raw == "" else blynk.coerce(field, raw)[1]
+                    if not store.unit_row(con, one("name")):
+                        self._json({"ok": False, "detail": "Unknown unit."}, 404)
+                        return
+                    store.set_unit_defaults(con, one("name"), want)
+                    now = store.unit_defaults(con, one("name"))
+                    self._json({"ok": True, "defaults": now,
+                                "detail": f"{one('name')} defaults to "
+                                          f"{blynk.settings_label(now) or 'the system defaults'}"})
+                elif act == "enforce":
+                    store.set_enforcing(con, one("name"), one("on") == "1")
+                    self._json({"ok": True,
+                                "detail": f"{one('name')} defaults "
+                                          f"{'held' if one('on')=='1' else 'not held'}"})
                 elif act == "toggle":
                     store.set_unit_enabled(con, one("name"), one("on") == "1")
                     config.set_devices(store.units(con))
@@ -1861,8 +1980,13 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     result = blynk.control(device, one("field"), one("value"))
                     if result["ok"]:
-                        # a deliberate change is the strongest statement of what
-                        # this unit should be set to, so it goes on file at once
+                        # Recorded as this unit's current state, and *not* as
+                        # its default: switching something to fan for the
+                        # afternoon is not a statement about what it should come
+                        # back to. Defaults are changed deliberately, in
+                        # Settings. What this does do is hold off the watchdog,
+                        # so the change you just made is not undone ten seconds
+                        # later by the thing that keeps units on their defaults.
                         store.save_settings(con, name,
                                             {result["pin"]: result["value"]},
                                             "dashboard")
@@ -1935,7 +2059,7 @@ def main():
     seeded = seed_defaults(con)
     if seeded:
         log("INFO", "startup", None,
-            f"seeded defaults ({blynk.settings_label(blynk.DEFAULTS)})",
+            "seeded defaults from each unit's own record",
             ", ".join(seeded))
     banner(con)
     con.close()

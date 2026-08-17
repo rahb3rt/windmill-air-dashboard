@@ -105,6 +105,12 @@ BACKUP_KEEP = int(_ENV.get("WINDMILL_BACKUP_KEEP", "14") or 14)
 BACKUP_INTERVAL_H = float(_ENV.get("WINDMILL_BACKUP_INTERVAL_H", "20") or 20)
 BACKUP_ENABLED = _ENV.get("WINDMILL_BACKUP_ENABLED", "1") != "0"
 
+#: How the guard stops a unit cooling: "fan" (default) or "off". Fan-only stops
+#: the compressor while leaving the blower running, which keeps the temperature
+#: sensor -- mounted behind the intake grille -- reading room air rather than a
+#: cold coil. See guard.METHOD for the measurements behind that.
+GUARD_METHOD = _ENV.get("WINDMILL_GUARD_METHOD", "fan")
+
 #: The software thermostat guard switches a unit off when its own thermostat
 #: will not. Off by default: it drives real hardware, and it is only warranted
 #: for units whose firmware demonstrably misbehaves.

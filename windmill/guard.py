@@ -98,6 +98,24 @@ RESTORE_PINS = tuple(p for p in blynk.WRITABLE if p != blynk.POWER)
 # The two thresholds crossing (or meeting) would make the loop oscillate, which
 # is the one failure mode that damages hardware quietly. Checked at import so a
 # bad edit cannot ship as a subtle runtime behaviour.
+#: How to stop a unit cooling: "fan" switches it to fan-only, "off" cuts power.
+#:
+#: Fan is the default, and the reason is the sensor. These units read
+#: temperature from a thermistor behind the intake grille, so it only sees room
+#: air while the fan is moving air past it. Cut the power and it sits against a
+#: cold coil: measured here, a unit switched off at 70F read 64F three minutes
+#: later and stayed there, then jumped back to ~71F within thirty seconds of the
+#: fan restarting. Owners report the same thing.
+#:
+#: Fan-only stops the compressor -- which is the entire waste, 336-452 W against
+#: 23-43 W for the fan -- while leaving the sensor able to tell us when the room
+#: has actually recovered. It also avoids power-cycling the unit at all, which
+#: is what made these units come back up on their own Eco/Low defaults.
+METHOD = "fan" if getattr(config, "GUARD_METHOD", "fan") != "off" else "off"
+
+#: Windmill's mode codes. Fan-only runs the blower with the compressor off.
+FAN_ONLY = 0
+
 #: Come back on after this long regardless of what the sensor says.
 #:
 #: The temperature route home assumes `v1` tracks the room. It does not always:
@@ -284,16 +302,29 @@ def decide(con, unit, now=None, link=None, settling=None):
     if is_held:
         # Only a report that post-dates the guard's own write, by enough for the
         # unit to have acted on it, says anything about what someone else did.
-        # Without that window the guard reads the `power 1` still in flight as
+        # Without that window the guard reads its own write still in flight as
         # an override and stands down from the switch-off it just made.
-        power_at = now - power_age          # _recent gives an age; this is when
-        if power and power_at > last_off + ACT_GRACE_S:
+        #
+        # Which pin carries that signal depends on what the guard did. In fan
+        # mode it never cut power, so `power 1` is not evidence of anything --
+        # reading it as an override would have the guard stand down at the first
+        # keyframe and leave the unit stuck on fan.
+        if METHOD == "fan":
+            undone, undone_age = _recent(con, unit, blynk.MODE, now)
+            undone = undone is not None and blynk.num(undone) != blynk.num(FAN_ONLY)
+        else:
+            undone, undone_age = bool(power), power_age
+        undone_at = now - (undone_age or 0)
+        if undone and undone_at > last_off + ACT_GRACE_S:
             # Someone turned it back on by hand or through the app. Whoever did
             # that outranks the guard, so the hold is dropped rather than
             # re-asserted -- a dashboard that silently undoes what you just did
             # is the behaviour people hate in thermostats.
-            return out("released", "Someone switched it back on, so the guard "
-                                   "is standing down.", action="release")
+            return out("released",
+                       "Someone changed the mode back themselves, so the guard "
+                       "is standing down." if METHOD == "fan" else
+                       "Someone switched it back on, so the guard is standing "
+                       "down.", action="release")
         # The fallback outranks the temperature, because the whole point of it
         # is to not trust the temperature.
         if last_off and now - last_off >= MAX_OFF_S:
@@ -343,7 +374,8 @@ def decide(con, unit, now=None, link=None, settling=None):
     return out("overcooling",
                f"Running at {watts:.0f}W with the room at {temp:.0f}F, "
                f"{target - temp:.1f}F below its {target:.0f}F setpoint; "
-               "switching it off.", action="off")
+               + ("switching it to fan-only." if METHOD == "fan"
+                  else "switching it off."), action="off")
 
 
 def report(con, now=None):
@@ -367,6 +399,10 @@ def _snapshot(con, unit, now=None):
     anything it has not reported. Both can be empty on a unit never seen
     healthy, in which case the restore is a plain power-on and the unit keeps
     what it already had.
+
+    A unit held to its defaults is the exception: those win over what it is
+    reporting. Otherwise a unit that had drifted to Eco in the minute before the
+    guard touched it would be faithfully restored to Eco half an hour later.
     """
     stored = store.get_settings(con, unit)
     now = int(now or time.time())
@@ -377,6 +413,9 @@ def _snapshot(con, unit, now=None):
             val = stored.get(pin)
         if val is not None:
             out[pin] = float(val)
+    if store.enforcing(con, unit):
+        out.update({p: v for p, v in store.unit_defaults(con, unit).items()
+                    if p in RESTORE_PINS})
     return out
 
 
@@ -418,10 +457,13 @@ def apply(con, decision, control, record=None, now=None):
 
     results = []
     if action == "off":
-        # Snapshotted first: once power is 0, what the unit reports is the
-        # guard's own doing and no longer evidence of what anyone wanted.
+        # Snapshotted first: once the guard has changed it, what the unit
+        # reports is the guard's own doing and no longer evidence of intent.
         saved = _snapshot(con, unit, now)
-        r = control(device, "power", 0)
+        if METHOD == "fan":
+            r = control(device, "mode", FAN_ONLY)
+        else:
+            r = control(device, "power", 0)
         results.append(r)
         if r.get("ok"):
             store.set_meta(con, _key("saved", unit), json.dumps(saved, sort_keys=True))
@@ -433,8 +475,17 @@ def apply(con, decision, control, record=None, now=None):
         # is powered, the step that stops these units coming back on Eco/Low.
         # `verify` is off because this runs inside the watchdog loop and the
         # settle window below already arranges for it to be re-checked.
-        saved = {**saved_settings(con, unit), blynk.POWER: 1.0}
-        r = blynk.apply_settings(device, saved, verify=False)
+        saved = saved_settings(con, unit)
+        if METHOD == "fan":
+            # It never lost power, so there is nothing to boot back up and no
+            # need to re-send anything: putting the mode back is the whole job.
+            saved = {p: v for p, v in saved.items() if p != blynk.POWER}
+            r = blynk.apply_settings(device, saved, power_last=False,
+                                     resend=False, verify=False, settle=0,
+                                     writer=control)
+        else:
+            saved = {**saved, blynk.POWER: 1.0}
+            r = blynk.apply_settings(device, saved, verify=False, writer=control)
         results.append(r)
         if r.get("ok") or r.get("written"):
             store.set_meta(con, _key("held", unit), "0")

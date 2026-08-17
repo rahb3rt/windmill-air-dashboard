@@ -654,6 +654,60 @@
   </div>
 </div>
 
+<div class="modal" id="defModal" hidden>
+  <div class="modal-back" id="defBack"></div>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="defTitle"
+       style="width:min(460px,100%)">
+    <div class="modal-head">
+      <h2 id="defTitle">Defaults</h2>
+      <button class="ghost" id="uDefCancel" aria-label="Close">✕</button>
+    </div>
+    <div class="ctl" style="border-bottom:none;margin-bottom:4px">
+      <label class="field" style="display:block;margin-bottom:10px">
+        <span class="k" style="display:block;margin-bottom:4px">Mode</span>
+        <select id="dMode" style="width:100%">
+          <option value="">System default</option>
+          <option value="1">Cool</option>
+          <option value="0">Fan</option>
+          <option value="2">Eco</option></select></label>
+      <label class="field" style="display:block;margin-bottom:10px">
+        <span class="k" style="display:block;margin-bottom:4px">Fan</span>
+        <select id="dFan" style="width:100%">
+          <option value="">System default</option>
+          <option value="0">Auto</option>
+          <option value="1">Low</option>
+          <option value="2">Medium</option>
+          <option value="3">High</option></select></label>
+      <label class="field" style="display:block;margin-bottom:10px">
+        <span class="k" style="display:block;margin-bottom:4px">Power</span>
+        <select id="dPower" style="width:100%">
+          <option value="">Leave alone</option>
+          <option value="1">On</option>
+          <option value="0">Off</option></select></label>
+      <label class="field" style="display:block;margin-bottom:10px">
+        <span class="k" style="display:block;margin-bottom:4px">Temperature</span>
+        <input id="dTarget" type="number" min="60" max="86" step="1"
+          placeholder="Leave alone" style="width:100%"></label>
+      <label class="field" style="display:flex;gap:8px;align-items:center">
+        <input id="dEnforce" type="checkbox">
+        <span class="k">Put it back when it drifts</span></label>
+    </div>
+    <p class="note">These are stored with the unit itself, so nothing the unit
+      reports can overwrite them — this dialog is the only place they change.
+      Anything left as “system default” follows the settings on this tab;
+      anything left as “leave alone” is not held at all. With the last box
+      ticked, a unit that wanders off these is set back — up to four times an
+      hour, then it gives up and says so in the log. A change you make in
+      Controls outranks the default for four hours, so you can put a unit on
+      fan for the afternoon without editing anything here.</p>
+    <div class="ctl-row" style="justify-content:flex-end;gap:8px;margin-top:14px">
+      <button class="ghost" id="uDefClose">Cancel</button>
+      <button class="ghost" id="uDefSave">Save</button>
+    </div>
+    <p class="ctl-err" id="uDefErr" hidden></p>
+  </div>
+</div>
+
 <div class="modal" id="unitModal" hidden>
   <div class="modal-back" id="modalBack"></div>
   <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="umTitle">
@@ -2107,6 +2161,7 @@ addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   closeUnit();
   if (!document.getElementById('addUnitModal').hidden) toggleAddUnit(false);
+  if (!document.getElementById('defModal').hidden) closeDefaults();
 });
 
 /* Our integrated kWh against v16, the unit's own energy counter. Shown rather
@@ -2305,6 +2360,20 @@ function fwText(u) {
     + ` · ${when}`;
 }
 
+/* What this unit is supposed to be set to, which is a property of the unit and
+   so lives on its own row. Anything it has not been given follows the settings
+   on this tab, and is shown that way rather than as a value that looks chosen. */
+const MODE_NM = ['Fan', 'Cool', 'Eco'], FAN_NM = ['Auto', 'Low', 'Medium', 'High'];
+function defText(u) {
+  const v = u.defaults || {}, bits = [];
+  if (v.v0 !== undefined) bits.push(v.v0 ? 'on' : 'off');
+  if (v.v2 !== undefined) bits.push(`${Math.round(v.v2)}°F`);
+  if (v.v3 !== undefined) bits.push(MODE_NM[v.v3] || v.v3);
+  if (v.v4 !== undefined) bits.push(`fan ${(FAN_NM[v.v4] || v.v4).toLowerCase()}`);
+  if (!bits.length) return '<span class="muted">system defaults</span>';
+  return bits.join(' · ') + (u.enforce ? '' : ' <span class="tag">not held</span>');
+}
+
 function renderUnits(d) {
   const rows = d.units || [];
   const behind = rows.filter(u => u.outdated);
@@ -2314,7 +2383,10 @@ function renderUnits(d) {
     + `edit in <code>.env</code>. <b>Label</b> renames it on the dashboard and `
     + `costs nothing; <b>Rename</b> changes the key its history is stored under `
     + `and moves every row with it. Removing keeps the history unless you say `
-    + `otherwise.`
+    + `otherwise. <b>Defaults</b> are what a unit should come back to — kept on `
+    + `the unit's own record, so nothing the unit reports can overwrite them, `
+    + `and put back automatically when it drifts. Changing a unit in Controls `
+    + `does not change its default; it overrides it for four hours.`
     + (behind.length
         ? `<br><b>${behind.map(u => u.label || u.name).join(', ')}</b> `
           + `${behind.length > 1 ? 'are' : 'is'} on older firmware than the rest `
@@ -2336,8 +2408,12 @@ function renderUnits(d) {
             u.label && u.label !== u.name ? `device “${u.name}” · ` : ''
           }firmware ${fwText(u)} · token <code>${u.token_hint}</code>${
             u.enabled ? '' : ' · <span class="tag warn">disabled</span>'}</div>
+          <div class="sub2">defaults ${defText(u)}</div>
         </div>
         <div class="acts">
+          <button class="seg u-def" data-name="${encodeURIComponent(u.name)}"
+            data-def="${encodeURIComponent(JSON.stringify(u.defaults || {}))}"
+            data-enforce="${u.enforce ? 1 : 0}">Defaults</button>
           <button class="seg u-label" data-name="${encodeURIComponent(u.name)}"
             data-label="${u.label || u.name}">Label</button>
           <button class="seg u-rename" data-name="${encodeURIComponent(u.name)}">Rename</button>
@@ -2347,6 +2423,10 @@ function renderUnits(d) {
         </div>
       </div>`).join('')}</div>`;
 
+  document.querySelectorAll('.u-def').forEach(b => b.addEventListener('click',
+    () => openDefaults(decodeURIComponent(b.dataset.name),
+                       JSON.parse(decodeURIComponent(b.dataset.def)),
+                       b.dataset.enforce === '1')));
   document.querySelectorAll('.u-label').forEach(b => b.addEventListener('click', async () => {
     const name = decodeURIComponent(b.dataset.name);
     const now = b.dataset.label;
@@ -2379,6 +2459,51 @@ async function unitAction(params) {
   await loadUnits();
   await load();                 // the unit list drives the whole page
 }
+
+let defUnit = null;
+
+function openDefaults(name, cur, enforce) {
+  defUnit = name;
+  document.getElementById('defTitle').textContent = `Defaults for ${name}`;
+  // The API speaks in the numbers the hardware uses, so the dialog does too.
+  const opt = v => v === undefined ? '' : String(Math.round(v));
+  document.getElementById('dMode').value = opt(cur.v3);
+  document.getElementById('dFan').value = opt(cur.v4);
+  document.getElementById('dPower').value = opt(cur.v0);
+  document.getElementById('dTarget').value = cur.v2 !== undefined ? Math.round(cur.v2) : '';
+  document.getElementById('dEnforce').checked = enforce;
+  document.getElementById('uDefErr').hidden = true;
+  document.getElementById('defModal').hidden = false;
+}
+const closeDefaults = () => { document.getElementById('defModal').hidden = true; };
+['uDefCancel', 'uDefClose', 'defBack'].forEach(id =>
+  document.getElementById(id).addEventListener('click', closeDefaults));
+
+document.getElementById('uDefSave').addEventListener('click', async () => {
+  const err = document.getElementById('uDefErr');
+  // Every field is sent every time, empty included -- that is how a default is
+  // cleared, and keep_blank_values on the server keeps the difference between
+  // "cleared" and "not mentioned".
+  const params = new URLSearchParams({
+    action: 'defaults', name: defUnit,
+    mode: document.getElementById('dMode').value,
+    fan: document.getElementById('dFan').value,
+    power: document.getElementById('dPower').value,
+    target: document.getElementById('dTarget').value.trim(),
+  });
+  try {
+    const r = await api('/api/units?' + params);
+    if (!r.ok) { err.textContent = r.detail || 'Could not save.'; err.hidden = false; return; }
+    await api('/api/units?' + new URLSearchParams({
+      action: 'enforce', name: defUnit,
+      on: document.getElementById('dEnforce').checked ? 1 : 0}));
+  } catch (e) {
+    err.textContent = String(e.message || e); err.hidden = false; return;
+  }
+  closeDefaults();
+  await loadUnits();
+  await load();
+});
 
 function toggleAddUnit(open) {
   document.getElementById('addUnitModal').hidden = !open;
@@ -3028,10 +3153,11 @@ function renderGuard(g) {
           + `on, then opt in the units whose own thermostat misbehaves.`)
     : `On for <b>${on.length || 'no'}</b> unit${on.length===1?'':'s'}`
       + (holding.length ? `, currently holding ${holding.map(([n])=>ROOM.get(n)||n).join(', ')} off` : '')
-      + `. Switches off below ${c.margin_f}°F under setpoint, back on at `
+      + `. ${c.method === 'fan'
+            ? 'Switches to <b>fan-only</b>' : 'Switches <b>off</b>'} below `
+      + `${c.margin_f}°F under setpoint, back to cooling at `
       + `${c.on_margin_f}°F above — or after ${Math.round((c.max_off_s||1200)/60)} min `
-      + `regardless, since these units' temperature reading cannot always be `
-      + `trusted once they are off. ${Math.round((c.min_off_s||300)/60)} min `
+      + `regardless, as a backstop. ${Math.round((c.min_off_s||300)/60)} min `
       + `minimum either way, so the compressor is never short-cycled.`;
 
   document.getElementById('guardTable').innerHTML = `<table><thead><tr>
@@ -3051,9 +3177,12 @@ function renderGuard(g) {
   </tbody></table>`;
 
   document.getElementById('guardNote').textContent =
-    'A unit switched off at 70°F was seen reporting 64°F three minutes later while '
-    + 'drawing nothing — that is the sensor sitting in cold air at the coil, not '
-    + 'the room. So there is a second way back on that does not depend on it. '
+    'These units read temperature from behind the intake grille, so it only sees '
+    + 'room air while the fan is moving air past it: one switched off at 70°F read '
+    + '64°F three minutes later, then recovered within thirty seconds of the fan '
+    + 'restarting. Fan-only stops the compressor — 23–43 W against 336–452 W, so '
+    + 'nearly all the saving — while leaving the sensor able to say when the room '
+    + 'has really recovered, and never power-cycles the unit. '
     + 'It only acts on a unit that is connected, reporting fresh readings and not '
     + 'mid-resync — and it stands down if you switch a held unit back on yourself. '
     + 'A unit it is holding off is excluded from saved settings, so "off" never '

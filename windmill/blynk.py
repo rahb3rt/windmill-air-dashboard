@@ -285,7 +285,7 @@ def settings_label(saved):
 
 
 def apply_settings(device, wanted, power_last=True, resend=True, settle=2.0,
-                   verify=False, attempts=1):
+                   verify=False, attempts=1, writer=None):
     """Write a set of settings to a unit and make them stick.
 
     Three places needed this and each grew its own copy, which is how the same
@@ -323,14 +323,22 @@ def apply_settings(device, wanted, power_last=True, resend=True, settle=2.0,
     settings = {p: v for p, v in wanted.items() if p != POWER}
     written = []
 
+    # `writer` keeps the hardware injectable: callers that already take a
+    # control callable for testing hand theirs in, rather than this reaching
+    # past them to the network and quietly breaking their test seam.
+    def put(pin, val):
+        if writer:
+            return bool(writer(device, CONTROL_OF.get(pin, pin), int(val)).get("ok"))
+        return write(device, pin, int(val))
+
     def push(group):
         for pin, val in sorted(group.items()):
-            if write(device, pin, int(val)):
+            if put(pin, val):
                 written.append(pin)
 
     if power_last and POWER in wanted:
         push(settings)
-        write(device, POWER, int(wanted[POWER]))
+        put(POWER, wanted[POWER])
         written.append(POWER)
         if resend and num(wanted[POWER]) == 1 and settings:
             if settle:
@@ -349,7 +357,7 @@ def apply_settings(device, wanted, power_last=True, resend=True, settle=2.0,
             if not missed or attempt == attempts:
                 break
             for pin in missed:
-                write(device, pin, int(wanted[pin]))
+                put(pin, wanted[pin])
 
     names = [CONTROL_OF.get(p, p) for p in sorted(set(written))]
     return {
@@ -362,7 +370,8 @@ def apply_settings(device, wanted, power_last=True, resend=True, settle=2.0,
     }
 
 
-def resync(device, settle=3.0, attempts=2, desired=None, record=None):
+def resync(device, settle=3.0, attempts=2, desired=None, record=None,
+           defaults=None):
     """Power-cycle a unit's *operating state* and re-push every setting.
 
     This is the remote equivalent of the unplug/replug ritual for the common
@@ -401,8 +410,8 @@ def resync(device, settle=3.0, attempts=2, desired=None, record=None):
         # resynced is under suspicion, so its own copy is the one thing that
         # should not decide where it ends up. Its setpoint is kept, since that
         # is a room preference no default can stand in for.
-        saved = dict(DEFAULTS)
-        if before.get(TARGET) is not None:
+        saved = dict(defaults or DEFAULTS)
+        if TARGET not in saved and before.get(TARGET) is not None:
             saved[TARGET] = float(before[TARGET])
         source = "defaults"
     if record:
