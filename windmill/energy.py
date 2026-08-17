@@ -247,6 +247,34 @@ def _pin_text(pin, val):
     return f"{val:g}"
 
 
+#: Below this the blower is stopped. Measured on a unit with the compressor
+#: off: the three fan speeds drew 42, 43 and 44 W and a stopped blower drew 0.
+#: A threshold anywhere in that gap works; the speeds themselves are one watt
+#: apart and cannot be told from each other, which is why this reports whether
+#: air is moving rather than how fast.
+BLOWER_W = 8.0
+
+
+def blower_state(state, pins):
+    """Whether air is actually moving, which is not what the fan setting says.
+
+    Set to Auto with nothing to cool, these units run the blower for about a
+    minute and then stop it. That matters more than the speed does: the
+    temperature sensor sits behind the intake grille, so with the blower
+    stopped it reads the coil instead of the room -- which is the whole reason
+    the guard puts a unit into fan mode.
+
+    Unknowable while the compressor is running, since 40 W of blower is not
+    visible under 400 W of compressor.
+    """
+    watts = blynk.num(state.get("watts"))
+    if not blynk.num(pins.get(blynk.POWER)):
+        return "off"
+    if watts >= COMPRESSOR_W:
+        return "cooling"
+    return "running" if watts >= BLOWER_W else "stopped"
+
+
 def unit_detail(con, name, t0, t1, label="", live=None):
     """Everything one unit reported over a range, for its own chart.
 
@@ -255,7 +283,8 @@ def unit_detail(con, name, t0, t1, label="", live=None):
     ever goes up and says nothing about when the unit was actually struggling.
     """
     pins = {"watts": config.POWER_PIN, "temp": blynk.TEMP, "target": blynk.TARGET,
-            "power": blynk.POWER, "rssi": "v30", "link": blynk.LINK}
+            "power": blynk.POWER, "rssi": "v30", "link": blynk.LINK,
+            "mode": blynk.MODE, "fan": blynk.FAN}
     out = {k: _thin(store.series(con, name, p, t0, t1)) for k, p in pins.items()}
 
     # Local history is younger than most ranges, so a 30-day view of a unit
@@ -376,6 +405,8 @@ def summary(con, t0, t1, label="", live=None):
             "coverage": round(ratio, 3),
             "missing_h": round(max(0.0, expected - covered)),
             "pins": pins or {},
+            "automatic": store.automatic(con, name),
+            "blower": blower_state(state, pins or {}),
             **sync_health(con, name, state, now),
             "overrun": (overruns.get(name) or {}).get("verdict"),
             "overrun_detail": (overruns.get(name) or {}).get("detail"),
