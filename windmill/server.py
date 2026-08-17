@@ -55,6 +55,11 @@ RESYNC_MAX = 3              # consecutive auto-resyncs before giving up on a uni
 #: work. The cooldown and attempt limit are what stop it acting repeatedly.
 OVERRUN_INTERVAL = 30
 
+#: The outdoor record only ever moves one row an hour, so this is about how
+#: soon the chart catches up rather than about resolution. Kept well under an
+#: hour so the current hour appears while it is still the current hour.
+WEATHER_INTERVAL = 900
+
 #: The thermostat guard decides from a handful of DB reads, so it runs as
 #: often as the page could show the problem. Its own MIN_OFF_S/MIN_ON_S are
 #: what protect the compressor, not this interval.
@@ -287,6 +292,16 @@ def banner(con):
     row("units", f"{len(names)} — " + ", ".join(names))
     row("rate", f"${energy.rate(con):.3f}/kWh")
     row("sampling", f"every {SAMPLE_INTERVAL}s")
+    try:
+        w = con.execute("SELECT COUNT(*) n, MIN(hour) lo, MAX(hour) hi "
+                        "FROM weather_hourly").fetchone()
+        row("outdoor", (f"{w['n']:,} hours from "
+                        f"{time.strftime('%Y-%m-%d', time.localtime(w['lo']))}, "
+                        f"latest {_ago(w['hi'], now)} "
+                        f"· refreshed every {WEATHER_INTERVAL // 60} min")
+            if w["n"] else _c("nothing cached yet", "dim"))
+    except Exception:
+        pass
     row("watchdog", f"sync every {WATCH_INTERVAL}s · overrun every "
                     f"{OVERRUN_INTERVAL}s · auto-resync "
                     f"{'on' if auto_resync_enabled(con) else 'off'} · auto-fix "
@@ -461,6 +476,53 @@ def backer():
         except Exception as exc:
             log("ERR", "backup", None, "failed", str(exc))
         time.sleep(3600)
+
+
+def weatherman():
+    """Keep the outdoor temperature record current, and complete behind.
+
+    Drawing a chart used to be the only thing that ever asked for weather, so
+    the record only reached as far back as someone had happened to look -- and
+    never covered today at all, because the fetch treated a missing tail as
+    close enough and the archive publishes the current day late. The outdoor
+    line simply stopped at midnight.
+
+    Asking on a schedule instead decouples the record from who is looking at
+    what: revise the last couple of days, then fill any older hole across the
+    span the energy history actually covers, which is the range anything here
+    can plot. Weather is history and does not change, so a row once filled is
+    never fetched again.
+    """
+    while True:
+        try:
+            con = store.connect()
+            try:
+                now = int(time.time())
+                first = con.execute("SELECT MIN(hour) h FROM hourly").fetchone()["h"]
+                t0 = int(first or now - 30 * 86400)
+                n = lambda: con.execute(
+                    "SELECT COUNT(*) n FROM weather_hourly").fetchone()["n"]
+                before = n()
+                ok = analysis.ensure_hourly_weather(con, t0, now, timeout=30, force=True)
+                ok &= analysis.ensure_weather(
+                    con, time.strftime("%Y-%m-%d", time.localtime(t0)),
+                    time.strftime("%Y-%m-%d", time.localtime(now)),
+                    timeout=30, force=True)
+                added = n() - before
+                if added:
+                    log("INFO", "weather", None,
+                        f"outdoor temperature current to "
+                        f"{time.strftime('%H:%M', time.localtime(now))}",
+                        f"{added} new hour{'s' if added != 1 else ''}")
+                elif not ok:
+                    log("WARN", "weather", None, "outdoor temperature not updated",
+                        "Open-Meteo unreachable or has not published yet; "
+                        "the chart keeps what it already has")
+            finally:
+                con.close()
+        except Exception as exc:
+            log("ERR", "weather", None, "failed", str(exc))
+        time.sleep(WEATHER_INTERVAL)
 
 
 def maintainer():
@@ -2203,6 +2265,7 @@ def main():
     threading.Thread(target=sampler, daemon=True).start()
     threading.Thread(target=maintainer, daemon=True).start()
     threading.Thread(target=watchdog, daemon=True).start()
+    threading.Thread(target=weatherman, daemon=True).start()
     if config.BACKUP_ENABLED:
         threading.Thread(target=backer, daemon=True).start()
     if RELOAD:

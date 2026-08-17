@@ -169,6 +169,37 @@ second scale entirely but proved too faint to follow.) Indoor history
 is backfilled from the Room Temperature datastream; outdoor comes from Open-Meteo
 hourly archive, cached permanently in SQLite.
 
+### Keeping the outdoor record current
+
+A background thread tops the outdoor record up every 15 minutes, independent of
+what anyone has open. It used to be fetched only as a side effect of drawing a
+chart, which had two consequences: the record reached back only as far as
+somebody had happened to look, and it never covered the current day at all — the
+fetch treated a missing tail as close enough, so the outdoor line stopped dead
+at local midnight and picked up again the next day.
+
+Three things the thread is careful about:
+
+* **The future is not stored.** Ask the archive for today and it returns the
+  whole day, filling the hours still to come from a forecast model. Those are
+  not observations, and written into the history they would never be revised.
+  Nothing past the current hour is kept.
+* **The last two days are re-asked.** The current day is served from that same
+  forecast model and then corrected as the reanalysis catches up, so recent
+  rows are refreshed rather than treated as settled. Everything older is
+  fetched once and never again — it is history, and it does not change.
+* **Hours are fetched in UTC.** Asking in local time loses an hour each
+  November: the two local 01:00s on the day the clocks go back share a label,
+  and one overwrites the other. Epochs an hour apart stay an hour apart.
+
+Chart rendering still fills an outright hole on demand, but at most once every
+15 minutes — the thread is what actually keeps the record current, so a page
+load should not become an API call. The startup banner reports coverage:
+
+```
+  outdoor     8,793 hours from 2025-08-16, latest 7min ago · refreshed every 15 min
+```
+
 ## Closing gaps in the history
 
 ```bash

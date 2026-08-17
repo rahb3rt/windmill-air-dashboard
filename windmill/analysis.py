@@ -15,6 +15,7 @@ Two honesty rules are built in rather than left to the reader:
 Weather comes from Open-Meteo and is cached in SQLite forever -- it is history,
 it does not change, and the API is slow enough that re-fetching is painful.
 """
+import calendar
 import json
 import statistics
 import time
@@ -30,31 +31,84 @@ SUMMER = ("06", "07", "08", "09")
 
 # ---------------------------------------------------------------- weather
 
-def _fetch_weather(start, end, timeout=45):
+#: The archive is not a settled record right up to the present. The current day
+#: is served from a forecast model and then revised as the reanalysis catches
+#: up, so the most recent couple of days are worth asking about again even
+#: though we already have rows for them.
+TAIL_H = 48
+
+#: Floor on how often the opportunistic path -- a chart render, which asks for
+#: whatever range it happens to be drawing -- may call out. `weatherman` in
+#: server.py is what actually keeps this current, on its own cadence; a page
+#: load should not turn into an API call every time.
+RETRY_S = 900
+
+#: Longest span asked for in one request. The archive will serve years of
+#: hourly data in a single call, but slowly enough to blow any sane timeout.
+CHUNK_D = 366
+
+_tried = {}                     # kind -> when the API was last called
+
+
+def _due(kind, now):
+    if now - _tried.get(kind, 0) < RETRY_S:
+        return False
+    _tried[kind] = now
+    return True
+
+
+def _archive(params, timeout):
     q = urllib.parse.urlencode({
         "latitude": config.LAT, "longitude": config.LON,
-        "start_date": start, "end_date": end,
-        "daily": "temperature_2m_mean,temperature_2m_max",
-        "temperature_unit": "fahrenheit", "timezone": "auto",
+        "temperature_unit": "fahrenheit", **params,
     })
-    url = f"https://archive-api.open-meteo.com/v1/archive?{q}"
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        d = json.load(r)["daily"]
+    with urllib.request.urlopen(
+            f"https://archive-api.open-meteo.com/v1/archive?{q}", timeout=timeout) as r:
+        return json.load(r)
+
+
+def _day(ts):
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+
+def _fetch_weather(start, end, timeout=45):
+    # Daily means are asked for in local time: a "day" here is the local day
+    # the degree-day figures are keyed on, not a UTC window.
+    d = _archive({"start_date": start, "end_date": end,
+                  "daily": "temperature_2m_mean,temperature_2m_max",
+                  "timezone": "auto"}, timeout)["daily"]
     return [(day, m, x) for day, m, x in
             zip(d["time"], d["temperature_2m_mean"], d["temperature_2m_max"])
             if m is not None]
 
 
-def ensure_weather(con, start, end, timeout=45):
-    """Fill any gap in the cache for [start, end]. Degrades silently on failure."""
+def ensure_weather(con, start, end, timeout=45, now=None, force=False):
+    """Fill any gap in the daily cache for [start, end].
+
+    Degrades silently on failure -- every caller has something reasonable to
+    show without it. `force` additionally re-asks for the last TAIL_H, which is
+    how today's running mean gets revised as the day finishes; leave it off on
+    the page-render path, where only an outright hole is worth a call.
+    """
+    now = int(now or time.time())
+    end = min(end, _day(now))
+    if end < start:
+        return True
     have = {r["day"] for r in con.execute(
         "SELECT day FROM weather WHERE day>=? AND day<=?", (start, end))}
-    want_days = (time.mktime(time.strptime(end, "%Y-%m-%d"))
-                 - time.mktime(time.strptime(start, "%Y-%m-%d"))) / 86400 + 1
-    if len(have) >= want_days - 1:          # today's row often lags; tolerate one
+    stale_from = _day(now - TAIL_H * 3600) if force else None
+    t = time.mktime(time.strptime(start, "%Y-%m-%d")) + 43200   # noon: DST-proof
+    need = []
+    while (day := _day(t)) <= end:
+        if day not in have or (stale_from and day >= stale_from):
+            need.append(day)
+        t += 86400
+    if not need:
         return True
+    if not force and not _due("daily", now):
+        return False
     try:
-        rows = _fetch_weather(start, end, timeout)
+        rows = _fetch_weather(min(need), max(need), timeout)
     except Exception:
         return False
     con.executemany(
@@ -72,42 +126,73 @@ def weather_map(con, start=None, end=None):
     return {r["day"]: (r["mean_f"], r["max_f"]) for r in con.execute(sql, args)}
 
 
-def ensure_hourly_weather(con, t0, t1, timeout=45):
-    """Hourly outdoor temperature for [t0,t1], cached permanently."""
-    start = time.strftime("%Y-%m-%d", time.localtime(t0))
-    end = time.strftime("%Y-%m-%d", time.localtime(t1))
-    want = int((t1 - t0) / 3600)
-    have = con.execute("SELECT COUNT(*) n FROM weather_hourly WHERE hour>=? AND hour<=?",
-                       (int(t0), int(t1))).fetchone()["n"]
-    if have >= want - 24:
-        return True
-    q = urllib.parse.urlencode({
-        "latitude": config.LAT, "longitude": config.LON,
-        "start_date": start, "end_date": end,
-        "hourly": "temperature_2m", "temperature_unit": "fahrenheit",
-        "timezone": "auto",
-    })
-    try:
-        with urllib.request.urlopen(
-                f"https://archive-api.open-meteo.com/v1/archive?{q}", timeout=timeout) as r:
-            d = json.load(r)["hourly"]
-    except Exception:
-        return False
-    rows = []
+def _fetch_hourly(t0, t1, timeout):
+    """[(hour, temp_f)] over [t0,t1], asked for and returned in UTC.
+
+    UTC rather than local time because the response is keyed by wall clock: on
+    the hour the clocks go back, two different hours share one local label and
+    one of them is lost. Epochs an hour apart are epochs an hour apart.
+    """
+    d = _archive({"start_date": time.strftime("%Y-%m-%d", time.gmtime(t0)),
+                  "end_date": time.strftime("%Y-%m-%d", time.gmtime(t1)),
+                  "hourly": "temperature_2m", "timezone": "UTC"},
+                 timeout)["hourly"]
+    out = []
     for iso, temp in zip(d["time"], d["temperature_2m"]):
         if temp is None:
             continue
-        ts = int(time.mktime(time.strptime(iso, "%Y-%m-%dT%H:%M")))
-        rows.append((ts, temp))
-    con.executemany("INSERT OR REPLACE INTO weather_hourly(hour,temp_f) VALUES (?,?)", rows)
-    con.commit()
-    return True
+        ts = calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M"))
+        if t0 <= ts <= t1:
+            out.append((ts, temp))
+    return out
+
+
+def ensure_hourly_weather(con, t0, t1, timeout=45, now=None, force=False):
+    """Hourly outdoor temperature for [t0,t1], cached permanently.
+
+    Only hours that have actually happened are stored. The archive will serve
+    the whole of today, filling the hours still to come from a forecast; those
+    are not observations, and written here they would sit in the history
+    unrevised. Everything past the current hour is dropped instead.
+    """
+    now = int(now or time.time())
+    start = int(t0) // 3600 * 3600
+    end = min(int(t1), now) // 3600 * 3600
+    if end < start:
+        return True
+    have = {r["hour"] for r in con.execute(
+        "SELECT hour FROM weather_hourly WHERE hour>=? AND hour<=?", (start, end))}
+    tail = now - TAIL_H * 3600 if force else None
+    need = [h for h in range(start, end + 3600, 3600)
+            if h not in have or (tail and h >= tail)]
+    if not need:
+        return True
+    if not force and not _due("hourly", now):
+        return False
+    ok, lo, hi = True, min(need), max(need)
+    while lo <= hi:
+        stop = min(hi, lo + CHUNK_D * 86400)
+        try:
+            rows = _fetch_hourly(lo, stop, timeout)
+        except Exception:
+            return False
+        if rows:
+            con.executemany(
+                "INSERT OR REPLACE INTO weather_hourly(hour,temp_f) VALUES (?,?)", rows)
+            con.commit()
+        else:
+            ok = False
+        lo = stop + 3600
+    return ok
 
 
 def outdoor_series(con, t0, t1):
+    # Floored to the hour, the way the indoor series is: a window starting at
+    # 09:08 still draws an 09:00 bucket, and an outdoor line that begins an hour
+    # after the indoor one reads as missing data rather than as rounding.
     return {r["hour"]: r["temp_f"] for r in con.execute(
         "SELECT hour, temp_f FROM weather_hourly WHERE hour>=? AND hour<=?",
-        (int(t0), int(t1)))}
+        (store.hour_of(t0), int(t1)))}
 
 
 # ---------------------------------------------------------------- energy
