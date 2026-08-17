@@ -3,9 +3,15 @@
 A local web dashboard for [Windmill Air](https://windmillair.com) AC units — every
 unit on one page, compared over any time range, with what each one actually costs you.
 
+It also controls them and corrects them: a watchdog that spots a unit whose state
+has quietly stopped matching what it was told and resyncs it, and an optional
+software thermostat for units whose own has given up. Those parts write to real
+hardware and some of them act on their own — read **Security** before pointing
+this at your house.
+
 Windmill has no official web dashboard and no public API. `dashboard.windmillair.com`
 is a white-labeled [Blynk](https://blynk.io) deployment whose HTTP API accepts each
-unit's device token directly. That's what this reads.
+unit's device token directly. That's what this talks to.
 
 ## Layout
 
@@ -940,9 +946,40 @@ Still unidentified: `v5`, `v6`, `v8`, `v11`, `v12`, `v17`, `v100`, `v110`–`v11
 AC unit — no account login required. `.env` is gitignored; keep it that way, and
 don't paste tokens into issues, chats, or screenshots.
 
-This project only ever issues `GET` requests and never changes a unit's settings.
+**This writes to your units, and some of it happens without you.** The controls
+set power, setpoint, mode and fan; the resync watchdog power-cycles a wedged unit
+in software; the Eco bar and the defaults enforcer correct drift on a loop; and
+the thermostat guard, on units you opt in, stops and restarts a compressor on its
+own judgement. Windmill's API takes writes as `GET` requests
+(`/external/api/update?...`), so "it only issues GETs" is technically true of
+this code and tells you nothing about what it does — a GET on that endpoint
+changes the hardware.
+
+The guard is the part that drives a compressor unasked, so it is gated three
+times: off unless `WINDMILL_GUARD=1` is set in `.env`, off again unless the
+dashboard's own switch is on, and off for every unit until you opt that unit in.
+It refuses to act on a reading it cannot date, on a unit with no session, or on
+one that has gone quiet, and it will not restart a compressor inside a five
+minute rest whatever the temperature says. See **Thermostat guard**.
+
+**The server has no authentication.** It binds `127.0.0.1` for exactly that
+reason: every endpoint that switches an air conditioner is open to anyone who can
+reach the port. `WINDMILL_BIND=0.0.0.0`, which a container needs, puts
+unauthenticated control of your air conditioners on the network — put it behind
+something that authenticates, or limit reach with the published port.
 
 ## Unofficial
 
 Not affiliated with, endorsed by, or supported by Windmill. It depends on an
 undocumented API that they can change or close at any time.
+
+Everything here about Windmill's API and these units' behaviour was established
+by calling the one and watching the other, on a sample of seven units in one
+house. Where a number is quoted — what a compressor draws, how often a unit drops
+into Eco, which revision misbehaves — it is a measurement from that house, not a
+specification. Your units may differ.
+
+## License
+
+[MIT](LICENSE). No warranty, which is worth reading literally here: this
+software switches compressors on and off.
