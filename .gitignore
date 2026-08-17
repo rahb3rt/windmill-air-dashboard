@@ -23,3 +23,7 @@ logs/
 *.swo
 *~
 .*.sw?
+
+# Support export bundles — telemetry, same reason as windmill.db above
+support-export/
+windmill-telemetry-*.zip
