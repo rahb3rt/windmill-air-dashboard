@@ -118,7 +118,8 @@ CREATE TABLE IF NOT EXISTS units (
   label TEXT,
   default_power INTEGER, default_target REAL,
   default_mode INTEGER, default_fan INTEGER,
-  enforce INTEGER NOT NULL DEFAULT 1
+  enforce INTEGER NOT NULL DEFAULT 1,
+  automatic INTEGER NOT NULL DEFAULT 1
 ) WITHOUT ROWID;
 
 -- which floor each unit is on, so a whole floor can be set at once. Free text
@@ -165,7 +166,8 @@ def connect():
         con.commit()
     for col, kind in (("default_power", "INTEGER"), ("default_target", "REAL"),
                       ("default_mode", "INTEGER"), ("default_fan", "INTEGER"),
-                      ("enforce", "INTEGER NOT NULL DEFAULT 1")):
+                      ("enforce", "INTEGER NOT NULL DEFAULT 1"),
+                      ("automatic", "INTEGER NOT NULL DEFAULT 1")):
         if unit_cols and col not in unit_cols:
             con.execute(f"ALTER TABLE units ADD COLUMN {col} {kind}")
     con.commit()
@@ -311,7 +313,7 @@ def unit_rows(con):
              # Enough to tell two units apart when pasting tokens, and no
              # more: this value grants full control of an appliance.
              "token_hint": ("…" + r["token"][-4:]) if r["token"] else "missing",
-             "enforce": bool(r["enforce"]),
+             "enforce": bool(r["enforce"]), "automatic": bool(r["automatic"]),
              "defaults": {pin: r[col] for pin, col in DEFAULT_COLS.items()
                           if r[col] is not None}}
             for r in con.execute(
@@ -529,6 +531,23 @@ def set_unit_defaults(con, unit, values):
                 (*[None if v is None else float(v) for v in cols.values()], unit))
     con.commit()
     return True
+
+
+def automatic(con, unit):
+    """Whether the system may act on this unit at all.
+
+    Switched off, nothing here writes to it: no resync, no schedule, no guard,
+    no putting it back on its defaults, and nothing it reports is learned as a
+    preference. Readings are still recorded, because the reason to switch this
+    off is usually to measure something.
+    """
+    r = con.execute("SELECT automatic FROM units WHERE name=?", (unit,)).fetchone()
+    return bool(r["automatic"]) if r else False
+
+
+def set_automatic(con, unit, on):
+    con.execute("UPDATE units SET automatic=? WHERE name=?", (1 if on else 0, unit))
+    con.commit()
 
 
 def enforcing(con, unit):

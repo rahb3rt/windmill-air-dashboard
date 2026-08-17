@@ -33,8 +33,12 @@ DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def targets(con, scope):
-    """Unit names a scope refers to."""
-    names = [d["name"] for d in config.DEVICES]
+    """Unit names a scope refers to.
+
+    Units on manual control are excluded, so a schedule quietly skips them
+    rather than being the one thing that still writes to a paused unit.
+    """
+    names = [d["name"] for d in config.DEVICES if store.automatic(con, d["name"])]
     if not scope:
         return names
     if scope.startswith("floor:"):

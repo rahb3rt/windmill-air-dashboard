@@ -176,8 +176,14 @@ def set_enabled(con, unit, on):
 
 
 def enabled_units(con):
-    """Configured units currently opted in, in configured order."""
-    return [d["name"] for d in config.DEVICES if is_enabled(con, d["name"])]
+    """Configured units currently opted in, in configured order.
+
+    A unit taken off automatic control is not opted in to anything, whatever its
+    own guard switch says -- "the system does not touch this unit" has to mean
+    every part of the system.
+    """
+    return [d["name"] for d in config.DEVICES
+            if is_enabled(con, d["name"]) and store.automatic(con, d["name"])]
 
 
 def held(con, unit):

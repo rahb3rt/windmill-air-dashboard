@@ -346,6 +346,19 @@ def migrate_jsonl(con):
     return n
 
 
+def hands_on(con):
+    """The units the system is allowed to act on.
+
+    One list, used by every loop that writes to hardware, so switching a unit to
+    manual cannot be half-honoured -- a unit still being resynced by one loop
+    while another leaves it alone is worse than either.
+
+    Reading is unaffected. The reason to take a unit off automatic control is
+    usually to measure something, and measurement needs the samples.
+    """
+    return [d for d in config.DEVICES if store.automatic(con, d["name"])]
+
+
 def defaults_for(con, unit):
     """What this unit should be set to.
 
@@ -388,6 +401,8 @@ def remember_settings(con, ts, units):
     for unit, pins in units.items():
         if not isinstance(pins, dict) or pins.get(blynk.LINK) != 1:
             continue
+        if not store.automatic(con, unit):
+            continue          # on manual: whatever it is showing was put there
         # A unit coming back from a resync reports a transient state -- off,
         # Eco, fan Low -- for minutes before settling into its real one. It is
         # connected throughout, so the link check does not catch it. Recording
@@ -843,7 +858,7 @@ def check_restore(con):
     running on Cool/Auto is better than one that keeps switching itself off.
     """
     now = int(time.time())
-    for device in config.DEVICES:
+    for device in hands_on(con):
         unit = device["name"]
         if not store.settling_until(con, unit, now):
             continue
@@ -924,7 +939,7 @@ def enforce_defaults(con):
     faulty hardware indefinitely.
     """
     now = int(time.time())
-    for device in config.DEVICES:
+    for device in hands_on(con):
         unit = device["name"]
         if not store.enforcing(con, unit):
             continue
@@ -1010,7 +1025,7 @@ def bar_eco(con):
     if not config.NO_ECO:
         return
     now = int(time.time())
-    for device in config.DEVICES:
+    for device in hands_on(con):
         unit = device["name"]
         want = defaults_for(con, unit).get(blynk.MODE, blynk.DEFAULTS[blynk.MODE])
         if blynk.num(want) == ECO:
@@ -1060,7 +1075,7 @@ def check_rejections(con):
     a state change is attributable to our own write rather than to a person.
     """
     now = int(time.time())
-    for device in config.DEVICES:
+    for device in hands_on(con):
         unit = device["name"]
         until = store.settling_until(con, unit, now)
         if not until:
@@ -1084,7 +1099,7 @@ def check_rejections(con):
 
 def check_sync(con):
     """Resync units that hold a session but have stopped reporting."""
-    for device in config.DEVICES:
+    for device in hands_on(con):
         name = device["name"]
         st = sync_state(con, device)
         if st["state"] == "ok":
@@ -1168,7 +1183,11 @@ API_DOCS = [
                 {"name": "at", "does": "Minutes past local midnight."},
                 {"name": "days", "does": "Digits 0=Mon..6=Sun, e.g. 01234."},
                 {"name": "id", "does": "Which rule, for edit/delete/toggle/run."},
-                {"name": "on", "values": "0 | 1", "does": "For toggle and enforce."},
+                {"name": "on", "values": "0 | 1",
+                 "does": "For toggle, enforce and automatic. automatic=0 takes the "
+                         "unit off every automatic action -- resync, schedules, "
+                         "guard, defaults -- and stops its reported settings being "
+                         "learned. Readings keep being recorded."},
                 {"name": "power|mode|fan|target",
                  "does": "For defaults: what this unit should be set to. An empty "
                          "value clears one back to the system-wide default; an "
@@ -1277,7 +1296,8 @@ API_DOCS = [
     {"path": "/api/units", "group": "Setup", "effect": "settings",
      "summary": "The AC units themselves and what each should be set to: list, add, rename, remove, defaults.",
      "params": [{"name": "action",
-                 "values": "add | label | rename | remove | toggle | defaults | enforce",
+                 "values": "add | label | rename | remove | toggle | defaults | "
+                           "enforce | automatic",
                  "does": "Omit to list."},
                 {"name": "name", "does": "Unit name."},
                 {"name": "token", "does": "Its Blynk device token, for add."},
@@ -1285,7 +1305,11 @@ API_DOCS = [
                 {"name": "label", "does": "Display name, for label. Changing this moves nothing; renaming moves every row."},
                 {"name": "purge", "values": "1",
                  "does": "With remove: delete its history too. Off by default."},
-                {"name": "on", "values": "0 | 1", "does": "For toggle and enforce."},
+                {"name": "on", "values": "0 | 1",
+                 "does": "For toggle, enforce and automatic. automatic=0 takes the "
+                         "unit off every automatic action -- resync, schedules, "
+                         "guard, defaults -- and stops its reported settings being "
+                         "learned. Readings keep being recorded."},
                 {"name": "power|mode|fan|target",
                  "does": "For defaults: what this unit should be set to. An empty "
                          "value clears one back to the system-wide default; an "
@@ -1910,6 +1934,18 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"ok": True, "defaults": now,
                                 "detail": f"{one('name')} defaults to "
                                           f"{blynk.settings_label(now) or 'the system defaults'}"})
+                elif act == "automatic":
+                    on = one("on") == "1"
+                    if not store.unit_row(con, one("name")):
+                        self._json({"ok": False, "detail": "Unknown unit."}, 404)
+                        return
+                    store.set_automatic(con, one("name"), on)
+                    self._json({"ok": True,
+                                "detail": f"{one('name')} is "
+                                          + ("back under automatic control"
+                                             if on else
+                                             "on manual — nothing here will "
+                                             "write to it")})
                 elif act == "enforce":
                     store.set_enforcing(con, one("name"), one("on") == "1")
                     self._json({"ok": True,

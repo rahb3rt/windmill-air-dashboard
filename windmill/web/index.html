@@ -213,6 +213,9 @@
   .seg[aria-pressed="true"] { color:var(--text-primary); font-weight:580;
                               background:var(--border); }
   .seg:disabled { opacity:.35; cursor:not-allowed; }
+  /* A unit taken off automatic control: worth noticing across the room, since
+     leaving one like that means nothing is watching it. */
+  .seg.u-auto.on { color:var(--s2); border-color:var(--s2); font-weight:580; }
   .stepper { display:flex; align-items:center; gap:0; flex:none; }
   .stepper .seg { border-radius:6px 0 0 6px; padding:4px 10px; flex:none; }
   .stepper .seg:last-child { border-radius:0 6px 6px 0; border-left:none; }
@@ -2393,7 +2396,10 @@ function renderUnits(d) {
     + `from <code>dashboard.windmillair.com</code> — no restart, and nothing to `
     + `edit in <code>.env</code>. <b>Label</b> renames it on the dashboard and `
     + `costs nothing; <b>Rename</b> changes the key its history is stored under `
-    + `and moves every row with it. Removing keeps the history unless you say `
+    + `and moves every row with it. <b>Go manual</b> takes a unit off every `
+    + `automatic action — resync, schedules, guard, defaults — and stops it `
+    + `being learned from, which is what you want while testing something by `
+    + `hand. Its readings keep being recorded. Removing keeps the history unless you say `
     + `otherwise. <b>Defaults</b> are what a unit should come back to — kept on `
     + `the unit's own record, so nothing the unit reports can overwrite them, `
     + `and put back automatically when it drifts. Changing a unit in Controls `
@@ -2419,12 +2425,21 @@ function renderUnits(d) {
             u.label && u.label !== u.name ? `device “${u.name}” · ` : ''
           }firmware ${fwText(u)} · token <code>${u.token_hint}</code>${
             u.enabled ? '' : ' · <span class="tag warn">disabled</span>'}</div>
-          <div class="sub2">defaults ${defText(u)}</div>
+          <div class="sub2">defaults ${defText(u)}${
+            u.automatic ? '' :
+            ' · <span class="tag warn">manual — nothing writes to it</span>'}</div>
         </div>
         <div class="acts">
           <button class="seg u-def" data-name="${encodeURIComponent(u.name)}"
             data-def="${encodeURIComponent(JSON.stringify(u.defaults || {}))}"
             data-enforce="${u.enforce ? 1 : 0}">Defaults</button>
+          <button class="seg u-auto${u.automatic ? '' : ' on'}"
+            data-name="${encodeURIComponent(u.name)}"
+            data-on="${u.automatic ? 0 : 1}"
+            title="${u.automatic
+              ? 'Stop every automatic action on this unit, for testing'
+              : 'Put it back under automatic control'}">${
+            u.automatic ? 'Go manual' : 'Go automatic'}</button>
           <button class="seg u-label" data-name="${encodeURIComponent(u.name)}"
             data-label="${u.label || u.name}">Label</button>
           <button class="seg u-rename" data-name="${encodeURIComponent(u.name)}">Rename</button>
@@ -2438,6 +2453,9 @@ function renderUnits(d) {
     () => openDefaults(decodeURIComponent(b.dataset.name),
                        JSON.parse(decodeURIComponent(b.dataset.def)),
                        b.dataset.enforce === '1')));
+  document.querySelectorAll('.u-auto').forEach(b => b.addEventListener('click',
+    () => unitAction({action:'automatic', name:decodeURIComponent(b.dataset.name),
+                      on:b.dataset.on})));
   document.querySelectorAll('.u-label').forEach(b => b.addEventListener('click', async () => {
     const name = decodeURIComponent(b.dataset.name);
     const now = b.dataset.label;
